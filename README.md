@@ -214,8 +214,11 @@ same evidence and command. Unknown flags fail with code 2 before any operations.
 The `treehouse-worktree` adapter leases one slot of a
 [treehouse](https://github.com/kunchenguid/treehouse) worktree pool. Treehouse
 keeps allocation, reset, and its own durable lease token. Dibs adds the owner,
-expiry, and reclaim that treehouse leases do not have. It needs treehouse 3.1.5
-or newer and git 2.31 or newer on `PATH`.
+expiry, and reclaim that treehouse leases do not have. Expiry reclaims a worktree
+lease by default, as it does every lease; callers that need to keep a live owner's
+slot must renew it with `dibs extend` before expiry. Live-owner protection is a
+separate deliverable in issue #41. It needs treehouse 3.1.5 or newer and git 2.31
+or newer on `PATH`.
 
 The adapter is off by default. Turn it on per machine with
 `"treehouse_worktree_adapter": true` in the user config, or with
