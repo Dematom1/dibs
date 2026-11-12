@@ -34,6 +34,8 @@ type Config struct {
 	Classes    map[string]Class  `json:"classes"`
 	Machines   map[string]Target `json:"machines"`
 	PROwner    bool              `json:"pr_owner"`
+	// TreehouseWorktree enables the treehouse-worktree resource adapter.
+	TreehouseWorktree bool `json:"treehouse_worktree_adapter"`
 }
 
 func hostMemory() (int64, error) {
@@ -161,12 +163,15 @@ func read() ([]byte, bool, error) {
 }
 
 // PROwner reports the pr_owner opt-in without probing host memory; a missing or unreadable config leaves it off.
-func PROwner() bool {
+func PROwner() bool { return optIn("pr_owner") }
+
+// TreehouseWorktree reports the treehouse_worktree_adapter opt-in the same way.
+func TreehouseWorktree() bool { return optIn("treehouse_worktree_adapter") }
+
+func optIn(key string) bool {
 	data, found, err := read()
-	var c struct {
-		PROwner bool `json:"pr_owner"`
-	}
-	return err == nil && found && json.Unmarshal(data, &c) == nil && c.PROwner
+	var c map[string]any
+	return err == nil && found && json.Unmarshal(data, &c) == nil && c[key] == true
 }
 
 // SSH config aliases may supply proxying, keys, and host-key policy. Dibs never

@@ -117,6 +117,11 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 	} {
 		require(t, hasRun(pair.job, pair.command), "missing CI command: "+pair.command)
 	}
+	var treehouse bool
+	for _, run := range runs(integration) {
+		treehouse = treehouse || strings.Contains(run, "go install github.com/kunchenguid/treehouse/v3@v3.1.5")
+	}
+	require(t, treehouse, "integration must install pinned treehouse for the treehouse-worktree adapter")
 	required := object(jobs["main-required-ci"])
 	gotNeeds := map[any]bool{}
 	for _, need := range list(required["needs"]) {

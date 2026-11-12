@@ -4,6 +4,8 @@ import (
 	"io"
 	"strings"
 
+	treehousepkg "github.com/Dematom1/dibs/internal/adapter/treehouseworktree"
+
 	outputpkg "github.com/Dematom1/dibs/internal/output"
 )
 
@@ -22,12 +24,15 @@ reclaimable: a live owner missing either cadence loses its resources.`
 var commandHelp = map[string]string{
 	"adopt": `dibs adopt <kind|k3d|compose> <name> --owner KIND:ID --ttl D
   [--context NAME] [--file PATH (required for compose)] [--stale 15m] [--full] [--axi | --json]
+dibs adopt treehouse-worktree <slot-path> --lease-id ID --owner KIND:ID --ttl D
+  [--landed-exclude-remote NAME ...] (opt-in: DIBS_TREEHOUSE_WORKTREE=1)
 Explicitly lease an existing resource. Existence must be verified and no lease
 may already own it. Captures cleanup configuration; does not recreate resources.
 Owner and positive TTL are required. Release/sweep keep their preview defaults.
 Examples:
   dibs adopt kind my-lab --owner pid:1234 --ttl 1h
-  dibs adopt compose my-stack --file compose.yaml --owner pid:1234 --ttl 2h`,
+  dibs adopt compose my-stack --file compose.yaml --owner pid:1234 --ttl 2h
+  dibs adopt treehouse-worktree /pool/app-1a2b/3/app --lease-id <token> --owner pid:1234 --ttl 8h`,
 	"orphans": `dibs orphans [--context NAME] [--full] [--axi | --json]
 Read-only inventory of unleased kind, k3d and Compose resources in the selected
 Docker context. Includes labels, creation evidence and adoption command templates.
@@ -134,6 +139,16 @@ Examples:
   dibs job --class suite --wait 0 -- just check`,
 }
 
+var worktreeHelp = map[string]string{
+	"create": `treehouse-worktree: [--repo DIR (default .)] [--landed-exclude-remote NAME ...]
+leases a treehouse pool slot (lease.path) and returns it only after its work
+landed on a remote; unlanded work keeps the lease.
+  dibs create --adapter treehouse-worktree --repo ~/src/app --ttl 8h`,
+	"release": `[--discard-unlanded] with --confirm discards uncommitted or unpushed work in
+a treehouse-worktree slot; without it such a release exits 1 listing blockers.
+Sweep never discards.`,
+}
+
 func help(command string) string {
 	body, ok := commandHelp[command]
 	if !ok {
@@ -152,7 +167,12 @@ Examples:
   dibs sweep --confirm
 Run dibs <command> --help for command flags.`
 	}
-	body = strings.ReplaceAll(body, "{{adapters}}", strings.Join(newAdapters().CreateNames(), "|"))
+	adapters := newAdapters()
+	body = strings.ReplaceAll(body, "{{adapters}}", strings.Join(adapters.CreateNames(), "|"))
+	// Opt-in help appears only once the adapter is on, so default help bytes stay unchanged.
+	if d, _ := adapters.Lookup(treehousepkg.Name); d.CreateAllowed && worktreeHelp[command] != "" {
+		body += "\n" + worktreeHelp[command]
+	}
 	if command == "create" || command == "extend" {
 		body += "\n\n" + cadence
 	}

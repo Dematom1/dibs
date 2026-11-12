@@ -209,6 +209,85 @@ files or resources. State corruption or an incomplete inventory fails with code 
 not a misleading empty result. Human, `--axi`, and `--json` output include this
 same evidence and command. Unknown flags fail with code 2 before any operations.
 
+## Lease a pooled worktree
+
+The `treehouse-worktree` adapter leases one slot of a
+[treehouse](https://github.com/kunchenguid/treehouse) worktree pool. Treehouse
+keeps allocation, reset, and its own durable lease token. Dibs adds the owner,
+expiry, and reclaim that treehouse leases do not have. It needs treehouse 3.1.5
+or newer and git 2.31 or newer on `PATH`.
+
+The adapter is off by default. Turn it on per machine with
+`"treehouse_worktree_adapter": true` in the user config, or with
+`DIBS_TREEHOUSE_WORKTREE=1`. The variable overrides the config either way, so
+`DIBS_TREEHOUSE_WORKTREE=0` turns a config opt-in off. Project files cannot
+enable it. While it is off, `create --adapter treehouse-worktree` and
+`adopt treehouse-worktree` fail with code 2 and name the setting. Leases that
+are already recorded still list, release, and sweep.
+
+```sh
+export DIBS_TREEHOUSE_WORKTREE=1
+dibs --axi create --adapter treehouse-worktree --repo ~/src/app \
+  --owner "pid:$WORKER_PID" --ttl 8h --landed-exclude-remote gate
+# lease.path is the slot; ps --full records carry resource.path too
+dibs --axi extend <id> --ttl 8h
+dibs --axi release <id> --confirm   # returns the slot only if its work landed
+```
+
+`create` saves the lease first, then runs
+`treehouse get --lease --json --lease-holder dibs:<id>` in the repository's main
+checkout, then records the slot path and treehouse `lease_id` on the lease.
+`--repo` defaults to the current directory. A `TREEHOUSE_ROOT` that is set at
+create time is pinned and passed as `--root` to every later call. Otherwise,
+later calls clear `TREEHOUSE_ROOT`. If dibs stops after treehouse allocates a
+slot but before it records the token, release finds the slot by its unique
+`dibs:<id>` holder.
+
+To lease a slot that treehouse already leased durably (from
+`treehouse get --lease` or `treehouse lease <name>`), adopt it by path and token:
+
+```sh
+dibs --axi adopt treehouse-worktree /path/to/slot --lease-id <treehouse lease_id> \
+  --owner "pid:$WORKER_PID" --ttl 8h
+```
+
+Adoption requires that exact token on that exact slot. It refuses a slot that
+another dibs lease already owns, and a slot that only a process reservation
+holds (a plain `treehouse get`).
+
+Release and sweep return the slot with
+`treehouse return <path> --if-lease-id <token>` (plus `--if-lease-holder` for
+slots that dibs allocated). A stale lease therefore never resets a slot that has
+been handed to someone else since. Before the return, dibs refuses unlanded work
+and keeps the lease:
+
+- uncommitted changes, including untracked files
+  (`git status --porcelain --untracked-files=all`)
+- commits that no remote-tracking ref contains
+  (`git log HEAD --not --remotes`)
+
+A blocked release exits 1. The AXI and JSON error carries a `blockers` object
+with up to ten `uncommitted` paths, up to ten `unpushed` commit IDs, and the
+`uncommitted_count` and `unpushed_count` totals. A blocked sweep lists the same
+reason under `failures`. Pass `--landed-exclude-remote NAME` (repeatable) on
+`create` or `adopt` for remotes whose refs do not count as landed, such as a
+local validation mirror. The lease records the list, so sweep applies the same
+policy later. Only an explicit `dibs release <id> --confirm --discard-unlanded`
+returns a slot that holds unlanded work, with `treehouse return --force`. Use it
+only after you prove that the work landed some other way, such as a
+squash-merged pull request. Sweep never discards work.
+
+Verify-gone means the claim is gone: no slot carries the token (or the pending
+holder), and the pinned slot is either listed without it or deleted. The slot
+itself goes back to the pool. Treehouse stops processes that are still running
+inside the slot when it returns it. Never also run `treehouse return` on a slot
+that dibs owns. Release the lease instead.
+
+Slot returns can take seconds. Release and sweep run this adapter's cleanup
+without the host-wide state lock, so renewals of other leases do not wait
+behind it. Dibs then forgets the lease under the lock only if its recorded
+identity did not change in the meantime.
+
 ## Run a local job
 
 ```sh
@@ -442,14 +521,15 @@ TTL. `create` defaults to `8h`; `adopt` requires an explicit `--ttl`.
 | Command | Behavior |
 | --- | --- |
 | `dibs` | Live home view with executable path, description, lease count, and hints |
-| `dibs create` or `dibs up` | Create a lease, optionally with `--adapter kind`, `k3d`, or `compose` |
+| `dibs create` or `dibs up` | Create a lease, optionally with `--adapter kind`, `k3d`, `compose`, or the opt-in `treehouse-worktree` (`--repo`, `--landed-exclude-remote`) |
 | `dibs adopt <type> <name> --owner KIND:ID --ttl D` | Lease an existing kind, k3d, or Compose resource after verifying existence |
+| `dibs adopt treehouse-worktree <path> --lease-id ID --owner KIND:ID --ttl D` | Lease a durably leased treehouse slot after verifying its token |
 | `dibs orphans [--context NAME]` | Read-only unleased-resource evidence and adoption command templates |
 | `dibs list`, `ls`, `ps`, or `who` | Owner, liveness, age, expiry, machine, and resource description for every lease |
 | `dibs env <id>` | Print a shell-safe kubeconfig export for a kind or k3d lease |
 | `dibs setup hooks [--remove]` | Install or remove managed agent integrations |
 | `dibs extend <id> --ttl D` | Renew an unexpired lease with a live owner |
-| `dibs release <id>` or `down` | Preview cleanup; `--confirm` performs it |
+| `dibs release <id>` or `down` | Preview cleanup; `--confirm` performs it; `--discard-unlanded` lets a confirmed worktree release discard unlanded work |
 | `dibs sweep` | Preview reclaim of dead-owner or expired leases; `--confirm` performs it |
 | `dibs job [--machine NAME] [flags] -- <cmd...>` | FIFO machine-budget admission, deadline, and child exit-code passthrough |
 | `dibs machine install <name> --file <binary>` | Version-checked SSH agent installation or upgrade |

@@ -96,7 +96,7 @@ Tests: `TestReclaimAndExtend`, `TestSweepDecisions`, `TestCLIExpiredLiveOwnerAnd
 2. The owner is checked again. A stale or unavailable owner fails the create.
 3. `newLease` builds the record, and the adapter's `Prepare` captures the cleanup scope. See [Adapters](adapters.md).
 4. The lease is saved to `state.json`.
-5. The adapter's `Create` runs.
+5. The adapter's `Create` runs and returns the identity to record. When that identity differs from the prepared one (for example, a treehouse slot path and lease token), the manager validates it and saves it again, even when `Create` then reports an error.
 
 If `Create` fails, the lease stays in state so that `release` or `sweep` can clean up a partial resource. The error names the retained lease ID: `creation incomplete; lease <id> retained for cleanup`. Test: `TestCLICreateFailureKeepsDurableCleanupIntent`.
 
@@ -121,11 +121,13 @@ An expired lease cannot come back. Create a new one instead. Test: `TestReclaimA
 4. Calls the adapter's `Destroy`, or the process group's `Destroy`. On error, keeps the lease.
 5. Deletes the lease and saves. If the save fails, restores the lease in memory and returns the error.
 
+An adapter that sets `Definition.CleanupOutsideLock` (today only `treehouse-worktree`) takes a different path, so a slow cleanup does not stall other commands. Under the lock, `Release` reads the lease and checks its machine. Then it unlocks and runs `Destroy`. Then it locks again and deletes the record only if the recorded `ResourceRef` is unchanged; a changed identity keeps the lease and returns an error. `--discard-unlanded` sets `Target.DiscardUnlanded` for this `Destroy` only. Tests: `TestReleaseCleansUpOutsideLockAndForgetsAfter`, `TestReleaseOutsideLockRetainsOnFailureOrChange`.
+
 `release --confirm` does not check owner liveness or expiry. It is an explicit operator action on a specific lease. Tests: `TestCLILeaseLifecycle`, `TestCLIReleaseFailureDoesNotReportReleased`.
 
 ### Sweep
 
-`sweep` in `internal/lease/lease.go` walks leases in sorted ID order. It records `unknown` owners, collects reclaimable leases as `eligible`, and, with `--confirm`, calls `releaseLease` on each eligible lease. A failed release goes into `Failures` and keeps its lease. `dibs sweep` exits 1 when any failure occurred. A second sweep after success is a no-op. Test: `TestSweepPreviewRetryAndIdempotence`.
+`sweep` in `internal/lease/lease.go` walks leases in sorted ID order. It records `unknown` owners, collects reclaimable leases as `eligible`, and, with `--confirm`, calls `releaseLease` on each eligible lease. A failed release goes into `Failures` and keeps its lease. Eligibility is still decided under the lock. Eligible leases whose adapter cleans up outside the lock are released after `sweep` unlocks, one at a time, through the same path as `Release`, and never with `DiscardUnlanded`. `dibs sweep` exits 1 when any failure occurred. Test: `TestSweepReclaimsOutsideLockWithoutDiscarding`. A second sweep after success is a no-op. Test: `TestSweepPreviewRetryAndIdempotence`.
 
 dibs has no daemon. Reclaim happens only when someone runs `dibs sweep --confirm`, `dibs release --confirm`, or `dibs job` (whose admission reclaims eligible job leases). The help text tells users to run sweep from a host timer.
 

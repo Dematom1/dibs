@@ -16,9 +16,9 @@ import (
 
 type composeAdapter struct{ run adapterpkg.CommandRunner }
 
-func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) error {
+func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	_, err := a.run(ctx, adapterpkg.DockerEnv(l.Ref), "docker", "--context", l.Ref.Context, "compose", "-p", l.Ref.Name, "-f", l.Ref.File, "up", "-d")
-	return err
+	return l.Ref, err
 }
 
 func (a composeAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {

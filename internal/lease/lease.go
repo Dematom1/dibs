@@ -102,8 +102,11 @@ type SweepResult struct {
 	Failures  map[string]string `json:"failures"`
 }
 
-func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry) SweepResult {
+// sweep returns eligible leases whose cleanup must run outside the state lock
+// instead of releasing them; the caller releases them after unlocking.
+func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry) (SweepResult, []Lease) {
 	r := SweepResult{Reclaimed: []string{}, Eligible: []string{}, Unknown: []string{}, Failures: map[string]string{}}
+	var outside []Lease
 	for _, id := range s.IDs() {
 		l := s.Leases[id]
 		eligible, live := reclaimable(l, host, now, check)
@@ -114,6 +117,10 @@ func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bo
 			continue
 		}
 		r.Eligible = append(r.Eligible, id)
+		if d, ok := adapters.Lookup(l.ResourceRef.Adapter); confirm && ok && d.CleanupOutsideLock {
+			outside = append(outside, l)
+			continue
+		}
 		if confirm {
 			if _, err := releaseLease(ctx, s, id, host, adapters); err != nil {
 				r.Failures[id] = err.Error()
@@ -122,5 +129,5 @@ func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bo
 			}
 		}
 	}
-	return r
+	return r, outside
 }

@@ -17,10 +17,13 @@ func newOwners() ownerpkg.Registry {
 }
 
 // DIBS_PR_OWNER overrides the user config either way and has no BERTH_* alias.
-func prOwnerEnabled() bool {
-	if value, ok := os.LookupEnv("DIBS_PR_OWNER"); ok {
+func prOwnerEnabled() bool { return optedIn("DIBS_PR_OWNER", configpkg.PROwner) }
+
+// optedIn lets a set DIBS_* variable override the user config either way.
+func optedIn(variable string, config func() bool) bool {
+	if value, ok := os.LookupEnv(variable); ok {
 		enabled, err := strconv.ParseBool(value)
 		return err == nil && enabled
 	}
-	return configpkg.PROwner()
+	return config()
 }

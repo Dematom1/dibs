@@ -13,6 +13,7 @@ import (
 	"time"
 
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
+	treehousepkg "github.com/Dematom1/dibs/internal/adapter/treehouseworktree"
 	"github.com/Dematom1/dibs/internal/compat"
 	configpkg "github.com/Dematom1/dibs/internal/config"
 	jobpkg "github.com/Dematom1/dibs/internal/job"
@@ -49,6 +50,29 @@ func (app application) leaseError(out io.Writer, mode outputpkg.Mode, command st
 	}
 	return outputpkg.Error(out, mode, 1, err.Error(), hint)
 }
+
+// worktreeFlags confines --repo and --landed-exclude-remote to treehouse-worktree
+// and pins the repository to an absolute path, defaulting to the current directory.
+func worktreeFlags(driver string, repo *string, excluded []string) error {
+	if driver != treehousepkg.Name {
+		if *repo != "" || len(excluded) > 0 {
+			return errors.New("--repo and --landed-exclude-remote apply only to --adapter " + treehousepkg.Name)
+		}
+		return nil
+	}
+	for _, remote := range excluded {
+		if !treehousepkg.ValidRemote(remote) {
+			return errors.New("--landed-exclude-remote needs a plain git remote name")
+		}
+	}
+	if *repo == "" {
+		*repo = "."
+	}
+	abs, err := filepath.Abs(*repo)
+	*repo = abs
+	return err
+}
+
 func (app application) runJob(ctx context.Context, args []string, out io.Writer, mode outputpkg.Mode, input io.Reader, ownerKind string) int {
 	return jobpkg.Run(ctx, args, input, out, mode, jobpkg.Options{Leases: app.leases, Owners: app.owners, Version: app.version, Usage: help("job"), OwnerKind: ownerKind})
 }
@@ -129,10 +153,11 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 	wantHelp := fs.Bool("help", false, "show help")
 	outputpkg.Flags(fs, &jsonOutput)
 	full := fs.Bool("full", false, "complete AXI records, text and list (JSON is always complete)")
-	var owner, resources, driver, file, machineName string
+	var owner, resources, driver, file, machineName, repo string
 	var ttl, stale time.Duration
-	var confirm, quiet bool
+	var confirm, quiet, discard bool
 	labels := labelsFlag{}
+	var excluded listFlag
 	if command == "list" || command == "sweep" {
 		fs.StringVar(&machineName, "machine", "", "SSH machine name")
 	}
@@ -148,12 +173,17 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		fs.StringVar(&driver, "adapter", "none", "managed resource adapter")
 		fs.StringVar(&file, "file", "", "compose file")
 		fs.Var(labels, "label", "lease metadata key=value (repeatable)")
+		fs.StringVar(&repo, "repo", "", "treehouse-worktree repository (default current directory)")
+		fs.Var(&excluded, "landed-exclude-remote", "treehouse-worktree remote whose refs do not count as landed (repeatable)")
 	}
 	if command == "extend" {
 		fs.DurationVar(&ttl, "ttl", 0, "new lifetime from now")
 	}
 	if command == "sweep" || command == "release" {
 		fs.BoolVar(&confirm, "confirm", false, "perform cleanup")
+	}
+	if command == "release" {
+		fs.BoolVar(&discard, "discard-unlanded", false, "discard work an adapter would protect")
 	}
 	if err := parseFlags(fs, args); err != nil {
 		return outputpkg.Error(out, jsonOutput, 2, err.Error(), help(command))
@@ -180,6 +210,12 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		if err := app.resources.CheckCreate(driver, file); err != nil {
 			return outputpkg.Error(out, jsonOutput, 2, err.Error(), help(command))
 		}
+		if err := worktreeFlags(driver, &repo, excluded); err != nil {
+			return outputpkg.Error(out, jsonOutput, 2, err.Error(), help(command))
+		}
+	}
+	if discard && !confirm {
+		return outputpkg.Error(out, jsonOutput, 2, "--discard-unlanded requires --confirm", help(command))
 	}
 	fullCommand := "dibs --axi ps"
 	hintMachine := machineName
@@ -258,13 +294,17 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 			result["bin"], result["description"] = bin, "Owner-and-expiry leases for local stacks and clusters"
 		}
 	case "create":
-		l, createErr := app.leases.Create(ctx, leasepkg.CreateRequest{Owner: newOwner, TTL: ttl, Description: resources, Labels: labels, Adapter: driver, File: file})
+		l, createErr := app.leases.Create(ctx, leasepkg.CreateRequest{Owner: newOwner, TTL: ttl, Description: resources, Labels: labels, Adapter: driver, File: file, Repo: repo, ExcludeRemotes: excluded})
 		if createErr != nil {
 			err = createErr
 			break
 		}
 		now = l.Created
-		result = map[string]any{"lease": outputpkg.LeaseView(l, ownerpkg.Alive, now, kubeconfigFor(app.resources, l)), "help": []string{"Run dibs extend " + l.ID + " --ttl " + ttl.String(), "Run dibs release " + l.ID + " --confirm to reclaim"}}
+		hints := []string{"Run dibs extend " + l.ID + " --ttl " + ttl.String(), "Run dibs release " + l.ID + " --confirm to reclaim"}
+		if l.ResourceRef.Path != "" {
+			hints = append([]string{"Work in " + remotepkg.ShellQuote(l.ResourceRef.Path) + "; never run treehouse return on it, release the lease instead"}, hints...)
+		}
+		result = map[string]any{"lease": outputpkg.LeaseView(l, ownerpkg.Alive, now, kubeconfigFor(app.resources, l)), "help": hints}
 		result["record"] = outputpkg.LeaseRecord(l, kubeconfigFor(app.resources, l))
 		if quiet {
 			fmt.Fprintln(out, l.ID)
@@ -294,7 +334,13 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		}
 	case "release":
 		id := fs.Arg(0)
-		released, releaseErr := app.leases.Release(ctx, leasepkg.ReleaseRequest{ID: id, Confirm: confirm})
+		released, releaseErr := app.leases.Release(ctx, leasepkg.ReleaseRequest{ID: id, Confirm: confirm, DiscardUnlanded: discard})
+		var unlanded *adapterpkg.UnlandedError
+		if errors.As(releaseErr, &unlanded) {
+			outputpkg.Emit(out, jsonOutput, map[string]any{"code": "COMMAND_FAILED", "exit_code": 1, "error": releaseErr.Error(), "id": id, "blockers": unlanded.View(),
+				"help": []string{"Commit and push the work, then rerun dibs release " + id + " --confirm", "Run dibs release " + id + " --confirm --discard-unlanded only after proving the work landed elsewhere"}})
+			return 1
+		}
 		err = releaseErr
 		status := "already absent (no-op)"
 		if released.Exists {

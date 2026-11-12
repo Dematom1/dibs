@@ -3,10 +3,12 @@
 Start with an issue and agree on scope and validation under [CONTRIBUTING.md](CONTRIBUTING.md). New built-ins must meet the [vision](VISION.md). This guide describes the current internal interface, not a public extension API.
 
 1. Add `internal/adapter/<name>` with a private implementation and a `New` constructor that returns `adapter.Definition`. Use [kind](internal/adapter/kind/kind.go) as an example.
-2. Implement `Create` and `Destroy` against `adapter.Target`. `Create` runs only after the lease is durable. `Destroy` must tolerate partial creation and already-absent resources. Keep absence verification inside `Destroy`; an error retains the cleanup record.
+2. Implement `Create` and `Destroy` against `adapter.Target`. `Create` runs only after the lease is durable and returns the identity to record; return `Target.Ref` unchanged unless creation learns something, such as an allocator token, which must still pass `Validate`. `Destroy` must tolerate partial creation and already-absent resources. Keep absence verification inside `Destroy`; an error retains the cleanup record.
 3. Bundle preparation, stored-reference validation, file policy, and environment projection in the definition. Preparation captures cleanup scope and private snapshots before creation. Validation must work without the source file or an engine call. Do not read or write the lease ledger.
 4. Add one ordinary import and constructor entry in [`cli.newAdapters`](internal/cli/adapters.go). Do not use `init`, blank imports, or another operational allowlist. The CLI derives create choices from the registry.
 5. Retain exact command, environment, snapshot, survivor, and tool-failure tests. Add real isolated integration coverage that fails when prerequisites are missing. Run `just check`, `just integration`, `just ssh-integration`, and the published verification flows.
+
+An optional built-in sets `Definition.OptIn` to its setting and enables `CreateAllowed` only when that setting is on, while staying registered so recorded leases remain readable. Set `CleanupOutsideLock` only when `Destroy` is conditional and idempotent, because concurrent destroys of the same lease can then run. Set `VerifiesAdoption` when `Prepare` verifies an existing resource and its duplicates against `PrepareRequest.Leased` without Docker discovery.
 
 An adapter can optionally provide `Definition.Discover` for read-only inventory.
 Discovery reports Docker evidence without creating or deleting resources. For

@@ -43,7 +43,7 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 | `list` | `budget`, `count`, `help`, `leases`, `records` |
 | `create` | `help`, `lease`, `record` |
 | `extend` | `lease` |
-| `release` | `id`, `status` |
+| `release` | `id`, `status`. A release that unlanded work blocks exits 1 with `code`, `error`, `exit_code`, `help`, `id`, and `blockers` (`uncommitted`, `uncommitted_count`, `unpushed`, `unpushed_count`; each list holds at most ten items). |
 | `sweep` | `confirmed`, `eligible`, `reclaimed`, `unknown`. Adds `help` when not confirmed. Adds `code`, `error`, `exit_code`, and `failures` on failure. |
 | `adopt` | `help`, `lease`, `record` |
 | `orphans` | `count`, `help`, `orphans`. Each row has `type`, `name`, `docker_context`, `created`, `labels`, `working_dir`, `working_dir_status`, `config_files`, `evidence`, and `adopt` (the command template). |
@@ -53,7 +53,7 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 
 Parts of the map:
 
-- `LeaseView` in `internal/output/view.go` builds every lease row with one fixed key set: `id`, `owner`, `liveness`, `machine`, `age`, `expires`, `resources`, `resource`, `resource_adapter`, `resource_name`, `labels`, `kubeconfig`, `cores`, `memory`, `memory_bytes`, and `class`. `memory` is a string with a `B` suffix. Rows for non-job leases report zeros and an empty class.
+- `LeaseView` in `internal/output/view.go` builds every lease row with one fixed key set: `id`, `owner`, `liveness`, `machine`, `age`, `expires`, `resources`, `resource`, `resource_adapter`, `resource_name`, `labels`, `kubeconfig`, `cores`, `memory`, `memory_bytes`, and `class`, plus `path` for a lease that records a worktree slot. `memory` is a string with a `B` suffix. Rows for non-job leases report zeros and an empty class.
 - `LeaseRecord` in `internal/output/view.go` is the stored lease encoded to JSON and decoded back with `UseNumber`, plus `kubeconfig`. See [State](state.md#format-version-2).
 - `BudgetView` reports `used_cores`, `used_memory_bytes`, `usable_cores`, `usable_memory_bytes`, `room_cores`, `room_memory_bytes`, and a one-line `summary`. If the config fails to load, `list` still succeeds, and `budget` holds only the summary `jobs: budget unavailable (check DIBS_CONFIG)`. Test: `TestBudgetSummary`, `TestBrokenBudgetStillLists`.
 

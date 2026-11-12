@@ -17,9 +17,9 @@ func k3dEnv(ref adapterpkg.ResourceRef) []string {
 	return []string{"DOCKER_CONTEXT=", "DOCKER_HOST=" + ref.DockerHost, "KIND_EXPERIMENTAL_PROVIDER=docker", "KUBECONFIG=" + ref.File}
 }
 
-func (a k3dAdapter) Create(ctx context.Context, l adapterpkg.Target) error {
+func (a k3dAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	_, err := a.run(ctx, k3dEnv(l.Ref), "k3d", "cluster", "create", l.Ref.Name)
-	return err
+	return l.Ref, err
 }
 
 func (a k3dAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {

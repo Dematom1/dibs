@@ -14,6 +14,8 @@ A user creates an attributed stack or throwaway Kubernetes cluster, uses the ser
 
 Run `dibs create --adapter compose --file <compose.yaml>`, `dibs create --adapter kind`, or `dibs create --adapter k3d`, with a live `--owner` and positive `--ttl`. Inspect via `dibs ps`, Docker, HTTP, and `kubectl`; release via `dibs release <id> --confirm`.
 
+The opt-in `treehouse-worktree` adapter is not driven by `verify.py`. `just integration` drives it through `TestIntegrationTreehouseWorktree` with real treehouse and git in a disposable repository and pool; see [Adapters](../../../../docs/adapters.md#treehouse-worktree).
+
 ## Driving it with verify.py
 
 Preconditions: Docker, Compose, kind, k3d, and kubectl all pass the skill's doctor checks. Images and package registries must be reachable.

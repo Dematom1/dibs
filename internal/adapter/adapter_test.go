@@ -33,7 +33,7 @@ func TestAdapterCommandsAndSurvivors(t *testing.T) {
 		return nil, nil
 	}
 	a := kindAdapter{runner}
-	if err := a.Create(context.Background(), l); err != nil {
+	if _, err := a.Create(context.Background(), l); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"create", "cluster", "--name", l.Ref.Name, "--kubeconfig", l.Ref.File, "--wait", "120s"}
@@ -60,7 +60,7 @@ func TestAdapterCommandsAndSurvivors(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	if err := k3d.Create(context.Background(), l); err != nil {
+	if _, err := k3d.Create(context.Background(), l); err != nil {
 		t.Fatal(err)
 	}
 	if err := k3d.Destroy(context.Background(), l); err != nil {
@@ -77,7 +77,7 @@ func TestAdapterCommandsAndSurvivors(t *testing.T) {
 	}
 	calls = nil
 	c := composeAdapter{runner}
-	if err := c.Create(context.Background(), l); err != nil {
+	if _, err := c.Create(context.Background(), l); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Destroy(context.Background(), l); err != nil {
@@ -128,7 +128,7 @@ func TestK3dKeepsCallerKubeconfig(t *testing.T) {
 	l := testLease(t)
 	l.Ref = adapterpkg.ResourceRef{Adapter: "k3d", Name: "dibs-test", File: filepath.Join(dir, "private-kubeconfig"), DockerHost: "unix:///docker.sock"}
 	a := k3dAdapter{adapterpkg.RunCommand}
-	if err := a.Create(context.Background(), l); err != nil {
+	if _, err := a.Create(context.Background(), l); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Destroy(context.Background(), l); err != nil {
@@ -203,7 +203,7 @@ func testLease(t *testing.T) adapterpkg.Target {
 
 type kindAdapter struct{ run adapterpkg.CommandRunner }
 
-func (a kindAdapter) Create(ctx context.Context, l adapterpkg.Target) error {
+func (a kindAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	return kindpkg.New(a.run).Adapter.Create(ctx, l)
 }
 func (a kindAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
@@ -212,7 +212,7 @@ func (a kindAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
 
 type k3dAdapter struct{ run adapterpkg.CommandRunner }
 
-func (a k3dAdapter) Create(ctx context.Context, l adapterpkg.Target) error {
+func (a k3dAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	return k3dpkg.New(a.run).Adapter.Create(ctx, l)
 }
 func (a k3dAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
@@ -221,7 +221,7 @@ func (a k3dAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
 
 type composeAdapter struct{ run adapterpkg.CommandRunner }
 
-func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) error {
+func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	return composepkg.New(a.run).Adapter.Create(ctx, l)
 }
 func (a composeAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {

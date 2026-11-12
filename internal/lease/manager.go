@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"time"
 
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
@@ -91,6 +93,9 @@ type CreateRequest struct {
 	Labels      map[string]string
 	Adapter     string
 	File        string
+	// Repo and ExcludeRemotes apply to pooled-worktree adapters.
+	Repo           string
+	ExcludeRemotes []string
 }
 
 func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, error) {
@@ -110,7 +115,8 @@ func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, error) {
 	if !ok {
 		return Lease{}, errors.New("unsupported resource adapter")
 	}
-	l.ResourceRef, err = d.Prepare(ctx, adapterpkg.PrepareRequest{Metadata: target(l).Metadata, SnapshotDir: filepath.Join(s.dir, "resources", l.ID), File: r.File})
+	snapshotDir := filepath.Join(s.dir, "resources", l.ID)
+	l.ResourceRef, err = d.Prepare(ctx, adapterpkg.PrepareRequest{Metadata: target(l).Metadata, SnapshotDir: snapshotDir, File: r.File, Repo: r.Repo, ExcludeRemotes: r.ExcludeRemotes})
 	if err != nil {
 		return Lease{}, err
 	}
@@ -118,8 +124,20 @@ func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, error) {
 	if err := s.Save(); err != nil {
 		return Lease{}, err
 	}
-	if err := d.Adapter.Create(ctx, target(l)); err != nil {
-		return Lease{}, fmt.Errorf("creation incomplete; lease %s retained for cleanup: %w", l.ID, err)
+	ref, createErr := d.Adapter.Create(ctx, target(l))
+	// Record what creation learned (such as an allocator token) even when it then failed.
+	if !reflect.DeepEqual(ref, l.ResourceRef) {
+		if err := d.Validate(snapshotDir, target(l).Metadata, ref); err != nil {
+			return Lease{}, fmt.Errorf("creation returned an invalid identity; lease %s retained for cleanup: %w", l.ID, err)
+		}
+		l.ResourceRef = ref
+		s.Leases[l.ID] = l
+		if err := s.Save(); err != nil {
+			return Lease{}, fmt.Errorf("cannot record the created identity; lease %s retained for cleanup: %w", l.ID, err)
+		}
+	}
+	if createErr != nil {
+		return Lease{}, fmt.Errorf("creation incomplete; lease %s retained for cleanup: %w", l.ID, createErr)
 	}
 	return detached(l), nil
 }
@@ -187,6 +205,8 @@ func (m *Manager) Extend(ctx context.Context, id string, ttl time.Duration) (Lea
 type ReleaseRequest struct {
 	ID      string
 	Confirm bool
+	// DiscardUnlanded lets an explicit release discard work an adapter would otherwise protect.
+	DiscardUnlanded bool
 }
 type ReleaseResult struct {
 	ID       string
@@ -199,13 +219,48 @@ func (m *Manager) Release(ctx context.Context, r ReleaseRequest) (ReleaseResult,
 	if err != nil {
 		return ReleaseResult{}, err
 	}
-	defer s.Close()
-	_, exists := s.Leases[r.ID]
+	l, exists := s.Leases[r.ID]
 	result := ReleaseResult{ID: r.ID, Exists: exists}
+	if d, ok := m.options.Adapters.Lookup(l.ResourceRef.Adapter); exists && r.Confirm && ok && d.CleanupOutsideLock && l.Machine == host {
+		s.Close()
+		result.Released, err = m.releaseOutsideLock(ctx, l, r.DiscardUnlanded)
+		return result, err
+	}
+	defer s.Close()
 	if exists && r.Confirm {
 		result.Released, err = releaseLease(ctx, s, r.ID, host, m.options.Adapters)
 	}
 	return result, err
+}
+
+// releaseOutsideLock runs slow, conditional cleanup without the host-wide lock
+// so other leases' renewals are not stalled, then forgets the lease under the
+// lock only if its identity did not change meanwhile.
+func (m *Manager) releaseOutsideLock(ctx context.Context, l Lease, discard bool) (bool, error) {
+	d, _ := m.options.Adapters.Lookup(l.ResourceRef.Adapter)
+	t := target(l)
+	t.DiscardUnlanded = discard
+	if err := d.Adapter.Destroy(ctx, t); err != nil {
+		return false, err
+	}
+	s, _, _, err := m.open(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer s.Close()
+	current, ok := s.Leases[l.ID]
+	if !ok {
+		return true, nil // a concurrent release already forgot it
+	}
+	if !reflect.DeepEqual(current.ResourceRef, l.ResourceRef) {
+		return false, errors.New("lease identity changed during cleanup; lease retained, retry dibs release")
+	}
+	delete(s.Leases, l.ID)
+	if err := s.Save(); err != nil {
+		s.Leases[l.ID] = current
+		return false, err
+	}
+	return true, nil
 }
 
 type SweepRequest struct{ Confirm bool }
@@ -215,8 +270,17 @@ func (m *Manager) Sweep(ctx context.Context, r SweepRequest) (SweepResult, error
 	if err != nil {
 		return SweepResult{}, err
 	}
-	defer s.Close()
-	return sweep(ctx, s, host, now, r.Confirm, m.checkOwner, m.options.Adapters), nil
+	result, outside := sweep(ctx, s, host, now, r.Confirm, m.checkOwner, m.options.Adapters)
+	s.Close()
+	for _, l := range outside {
+		if _, err := m.releaseOutsideLock(ctx, l, false); err != nil {
+			result.Failures[l.ID] = err.Error()
+		} else {
+			result.Reclaimed = append(result.Reclaimed, l.ID)
+		}
+	}
+	sort.Strings(result.Reclaimed)
+	return result, nil
 }
 
 type AdmissionRequest struct {
