@@ -22,6 +22,7 @@ type Lease struct {
 	Labels      map[string]string      `json:"labels"`
 	ResourceRef adapterpkg.ResourceRef `json:"resource"`
 	Reservation *ReservationView       `json:"job,omitempty"`
+	Releasing   *time.Time             `json:"releasing,omitempty"`
 }
 
 func newLease(owner ownerpkg.Reference, ttl time.Duration, resources string, labels map[string]string, now time.Time) (Lease, error) {
@@ -49,6 +50,9 @@ func reclaimable(l Lease, host string, now time.Time, check func(ownerpkg.Refere
 }
 
 func extendLease(l *Lease, host string, ttl time.Duration, now time.Time, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness) error {
+	if l.Releasing != nil {
+		return errors.New("cleanup is in progress; lease cannot be renewed")
+	}
 	if ttl <= 0 {
 		return errors.New("--ttl must be positive")
 	}
@@ -118,6 +122,15 @@ func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bo
 		}
 		r.Eligible = append(r.Eligible, id)
 		if d, ok := adapters.Lookup(l.ResourceRef.Adapter); confirm && ok && d.CleanupOutsideLock {
+			previous := l.Releasing
+			markReleasing(&l)
+			s.Leases[id] = l
+			if err := s.Save(); err != nil {
+				l.Releasing = previous
+				s.Leases[id] = l
+				r.Failures[id] = err.Error()
+				continue
+			}
 			outside = append(outside, l)
 			continue
 		}

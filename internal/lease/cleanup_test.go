@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +161,63 @@ func TestReleaseCleansUpOutsideLockAndForgetsAfter(t *testing.T) {
 	}
 	if _, still := stored(t, m, l.ID); still {
 		t.Fatal("lease survived a verified cleanup")
+	}
+}
+
+func TestOutsideLockCleanupBlocksExtendAndCanRetry(t *testing.T) {
+	for _, mode := range []string{"release", "sweep"} {
+		t.Run(mode, func(t *testing.T) {
+			started, proceed := make(chan struct{}), make(chan struct{})
+			a := &scripted{destroy: func(adapterpkg.Target) error {
+				close(started)
+				<-proceed
+				return errors.New("temporary failure")
+			}}
+			m := scriptedManager(t, a, nil)
+			l, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "sweep" {
+				s, err := m.openStore(context.Background(), m.options.Directory)
+				if err != nil {
+					t.Fatal(err)
+				}
+				expired := s.Leases[l.ID]
+				expired.Expires = time.Now().UTC().Add(-time.Minute)
+				s.Leases[l.ID] = expired
+				if err := s.Save(); err != nil {
+					t.Fatal(err)
+				}
+				s.Close()
+			}
+			finished := make(chan error, 1)
+			go func() {
+				if mode == "release" {
+					_, err := m.Release(context.Background(), ReleaseRequest{ID: l.ID, Confirm: true})
+					finished <- err
+					return
+				}
+				_, err := m.Sweep(context.Background(), SweepRequest{Confirm: true})
+				finished <- err
+			}()
+			<-started
+			if _, err := m.Extend(context.Background(), l.ID, time.Hour); err == nil || !strings.Contains(err.Error(), "cleanup is in progress") {
+				t.Fatalf("extend during cleanup = %v", err)
+			}
+			close(proceed)
+			if err := <-finished; (mode == "release") != (err != nil) {
+				t.Fatalf("cleanup result = %v", err)
+			}
+			if got, ok := stored(t, m, l.ID); !ok || got.Releasing == nil {
+				t.Fatalf("failed cleanup did not retain marker: %+v, %v", got, ok)
+			}
+			a.destroy = nil
+			r, err := m.Release(context.Background(), ReleaseRequest{ID: l.ID, Confirm: true})
+			if err != nil || !r.Released {
+				t.Fatalf("retry release = %+v, %v", r, err)
+			}
+		})
 	}
 }
 

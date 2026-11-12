@@ -222,6 +222,15 @@ func (m *Manager) Release(ctx context.Context, r ReleaseRequest) (ReleaseResult,
 	l, exists := s.Leases[r.ID]
 	result := ReleaseResult{ID: r.ID, Exists: exists}
 	if d, ok := m.options.Adapters.Lookup(l.ResourceRef.Adapter); exists && r.Confirm && ok && d.CleanupOutsideLock && l.Machine == host {
+		previous := l.Releasing
+		markReleasing(&l)
+		s.Leases[l.ID] = l
+		if err := s.Save(); err != nil {
+			l.Releasing = previous
+			s.Leases[l.ID] = l
+			s.Close()
+			return result, err
+		}
 		s.Close()
 		result.Released, err = m.releaseOutsideLock(ctx, l, r.DiscardUnlanded)
 		return result, err
@@ -236,6 +245,11 @@ func (m *Manager) Release(ctx context.Context, r ReleaseRequest) (ReleaseResult,
 // releaseOutsideLock runs slow, conditional cleanup without the host-wide lock
 // so other leases' renewals are not stalled, then forgets the lease under the
 // lock only if its identity did not change meanwhile.
+func markReleasing(l *Lease) {
+	now := time.Now().UTC()
+	l.Releasing = &now
+}
+
 func (m *Manager) releaseOutsideLock(ctx context.Context, l Lease, discard bool) (bool, error) {
 	d, _ := m.options.Adapters.Lookup(l.ResourceRef.Adapter)
 	t := target(l)
