@@ -33,6 +33,8 @@ func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, arg
 	switch {
 	case strings.Contains(call, "rev-parse --path-format=absolute --git-common-dir"):
 		return []byte(p.repo + "/.git\n"), nil
+	case strings.HasSuffix(call, "rev-parse HEAD"):
+		return []byte("head-A\n"), nil
 	case strings.HasPrefix(call, "treehouse get --lease --json --lease-holder "):
 		p.claim, p.holder = "tok-A", args[4]
 		return json.Marshal(map[string]string{"path": p.slot, "lease_id": p.claim, "lease_holder": p.holder})

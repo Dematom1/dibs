@@ -163,6 +163,27 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 		}
 	})
 
+	t.Run("active slot process blocks release until it exits", func(t *testing.T) {
+		id, path := lab.acquire(owner)
+		writer := exec.Command("sh", "-c", "touch during-cleanup; sleep 2; rm during-cleanup")
+		writer.Dir = path
+		if err := writer.Start(); err != nil {
+			t.Fatal(err)
+		}
+		blocked := invoke(t, 1, "release", id, "--confirm")
+		blockers := blocked["blockers"].(map[string]any)
+		processes := blockers["processes"].([]any)
+		if len(processes) == 0 {
+			t.Fatalf("process was not reported: %v", blocked)
+		}
+		if err := writer.Wait(); err != nil {
+			t.Fatal(err)
+		}
+		if got := invoke(t, 0, "release", id, "--confirm"); got["status"] != "released" {
+			t.Fatalf("release after process exit = %v", got)
+		}
+	})
+
 	t.Run("a stale lease never returns a reassigned slot", func(t *testing.T) {
 		id, path := lab.acquire(owner)
 		lab.treehouse("return", path, "--force")
@@ -269,17 +290,10 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 		}
 	})
 
-	t.Run("slow returns do not stall other leases' renewals", func(t *testing.T) {
-		// Each return waits out treehouse's process grace period; renewals must not queue behind them.
+	t.Run("concurrent returns do not stall other leases' renewals", func(t *testing.T) {
 		var ids []string
-		for range 3 {
-			id, path := lab.acquire(owner)
-			sleeper := exec.Command("sleep", "30")
-			sleeper.Dir = path
-			if err := sleeper.Start(); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { sleeper.Process.Kill(); sleeper.Wait() })
+		for range 12 {
+			id, _ := lab.acquire(owner)
 			ids = append(ids, id)
 		}
 		renewed := invoke(t, 0, "create", "--owner", owner, "--ttl", "1h")["lease"].(map[string]any)["id"].(string)
@@ -292,7 +306,6 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 				done <- time.Since(start)
 			}()
 		}
-		time.Sleep(300 * time.Millisecond)
 		start := time.Now()
 		invoke(t, 0, "extend", renewed, "--ttl", "2h")
 		renewal := time.Since(start)
@@ -300,9 +313,9 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 		for range ids {
 			slowest = max(slowest, <-done)
 		}
-		t.Logf("renewal %v while %d slot returns ran (slowest return %v)", renewal, len(ids), slowest)
-		if renewal > slowest/2 {
-			t.Fatalf("renewal took %v, stalled behind returns of up to %v", renewal, slowest)
+		t.Logf("renewal %v while %d real slot returns ran (slowest return %v)", renewal, len(ids), slowest)
+		if renewal > 2*time.Second {
+			t.Fatalf("renewal took %v while outside-lock returns were running", renewal)
 		}
 		invoke(t, 0, "release", renewed, "--confirm")
 	})

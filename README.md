@@ -261,8 +261,10 @@ holds (a plain `treehouse get`).
 Release and sweep return the slot with
 `treehouse return <path> --if-lease-id <token>` (plus `--if-lease-holder` for
 slots that dibs allocated). A stale lease therefore never resets a slot that has
-been handed to someone else since. Before the return, dibs refuses unlanded work
-and keeps the lease:
+been handed to someone else since. Before return, dibs requires detected slot
+processes to exit and refuses unlanded work, keeping the lease. Treehouse detects
+processes by cwd inside the slot, so processes whose cwd is elsewhere are not
+covered. Dibs rechecks the claim, process list, and HEAD immediately before return.
 
 - uncommitted changes, including untracked files
   (`git status --porcelain --untracked-files=all`)

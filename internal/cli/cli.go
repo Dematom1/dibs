@@ -337,8 +337,11 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		released, releaseErr := app.leases.Release(ctx, leasepkg.ReleaseRequest{ID: id, Confirm: confirm, DiscardUnlanded: discard})
 		var unlanded *adapterpkg.UnlandedError
 		if errors.As(releaseErr, &unlanded) {
-			outputpkg.Emit(out, jsonOutput, map[string]any{"code": "COMMAND_FAILED", "exit_code": 1, "error": releaseErr.Error(), "id": id, "blockers": unlanded.View(),
-				"help": []string{"Commit and push the work, then rerun dibs release " + id + " --confirm", "Run dibs release " + id + " --confirm --discard-unlanded only after proving the work landed elsewhere"}})
+			hints := []string{"Commit and push the work, then rerun dibs release " + id + " --confirm", "Run dibs release " + id + " --confirm --discard-unlanded only after proving the work landed elsewhere"}
+			if len(unlanded.Processes) > 0 {
+				hints = []string{"Stop the listed processes, then retry dibs release " + id + " --confirm"}
+			}
+			outputpkg.Emit(out, jsonOutput, map[string]any{"code": "COMMAND_FAILED", "exit_code": 1, "error": releaseErr.Error(), "id": id, "blockers": unlanded.View(), "help": hints})
 			return 1
 		}
 		err = releaseErr

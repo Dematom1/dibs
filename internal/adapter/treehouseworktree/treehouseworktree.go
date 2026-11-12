@@ -36,12 +36,18 @@ func env() []string {
 	return []string{"TREEHOUSE_ROOT=", "TREEHOUSE_LEASE_HOLDER=", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0"}
 }
 
+type process struct {
+	Name string `json:"name"`
+	PID  int    `json:"pid"`
+}
+
 type slot struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Status      string `json:"status"`
-	LeaseID     string `json:"lease_id"`
-	LeaseHolder string `json:"lease_holder"`
+	Name        string    `json:"name"`
+	Path        string    `json:"path"`
+	Status      string    `json:"status"`
+	LeaseID     string    `json:"lease_id"`
+	LeaseHolder string    `json:"lease_holder"`
+	Processes   []process `json:"processes"`
 }
 
 type worktree struct{ run adapterpkg.DirRunner }
@@ -105,10 +111,31 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	if !held {
 		return gone(slots, t.Ref)
 	}
+	var checkedHead string
 	if !t.DiscardUnlanded {
-		if err := w.landed(ctx, s.Path, t.Ref.ExcludeRemotes); err != nil {
+		if len(s.Processes) != 0 {
+			return processBlocker(s.Processes)
+		}
+		checkedHead, err = w.landed(ctx, s.Path, t.Ref.ExcludeRemotes)
+		if err != nil {
 			return err
 		}
+		latest, err := w.slots(ctx, t.Ref)
+		if err != nil {
+			return err
+		}
+		current, held := claimed(latest, t.Ref)
+		if !held || current.LeaseID != s.LeaseID || filepath.Clean(current.Path) != filepath.Clean(s.Path) || len(current.Processes) != 0 {
+			return errors.New("worktree claim or process set changed during cleanup; lease retained")
+		}
+		head, err := w.head(ctx, current.Path)
+		if err != nil {
+			return err
+		}
+		if head != checkedHead {
+			return errors.New("worktree HEAD changed during cleanup; lease retained")
+		}
+		s = current
 	}
 	// Conditional on the exact claim, so a stale lease never resets a slot reassigned since.
 	args := []string{"return", s.Path, "--if-lease-id", s.LeaseID}
@@ -155,10 +182,18 @@ func gone(slots []slot, ref adapterpkg.ResourceRef) error {
 
 // landed refuses uncommitted changes and commits that no remote-tracking ref
 // (other than excluded remotes) contains.
-func (w worktree) landed(ctx context.Context, path string, exclude []string) error {
+func processBlocker(processes []process) error {
+	blockers := make([]adapterpkg.Process, 0, len(processes))
+	for _, p := range processes {
+		blockers = append(blockers, adapterpkg.Process{Name: p.Name, PID: p.PID})
+	}
+	return &adapterpkg.UnlandedError{Processes: blockers}
+}
+
+func (w worktree) landed(ctx context.Context, path string, exclude []string) (string, error) {
 	out, err := w.run(ctx, "", env(), "git", "-C", path, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
-		return err
+		return "", err
 	}
 	unlanded := &adapterpkg.UnlandedError{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -172,13 +207,22 @@ func (w worktree) landed(ctx context.Context, path string, exclude []string) err
 	}
 	out, err = w.run(ctx, "", env(), "git", append(args, "--remotes", "--")...)
 	if err != nil {
-		return err
+		return "", err
 	}
 	unlanded.Unpushed = strings.Fields(string(out))
-	if len(unlanded.Uncommitted) == 0 && len(unlanded.Unpushed) == 0 {
-		return nil
+	if len(unlanded.Uncommitted) > 0 || len(unlanded.Unpushed) > 0 {
+		return "", unlanded
 	}
-	return unlanded
+	head, err := w.head(ctx, path)
+	return head, err
+}
+
+func (w worktree) head(ctx context.Context, path string) (string, error) {
+	out, err := w.run(ctx, "", env(), "git", "-C", path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // mainCheckout pins the repository's main checkout, so cleanup survives the

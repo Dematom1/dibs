@@ -62,6 +62,7 @@ func clean() map[string][]reply {
 	return map[string][]reply{
 		"git -C " + slotPath + " status --porcelain --untracked-files=all":                        {{out: ""}},
 		"git -C " + slotPath + " log --format=%H HEAD --not --remotes --":                         {{out: ""}},
+		"git -C " + slotPath + " rev-parse HEAD":                                                  {{out: "head-A\n"}, {out: "head-A\n"}},
 		"treehouse return " + slotPath + " --if-lease-id tok-A --if-lease-holder dibs:" + leaseID: {{out: ""}},
 	}
 }
@@ -125,13 +126,14 @@ func TestDestroyReturnsExactClaimAndVerifiesGone(t *testing.T) {
 	answers := clean()
 	answers[statusCall] = []reply{
 		{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})},
+		{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})},
 		{out: status(t, slot{Name: "3", Path: slotPath, Status: "available"})},
 	}
 	f := &fake{answers: answers}
 	if err := (worktree{f.run}).Destroy(context.Background(), target(slotPath, "tok-A")); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.calls) != 5 {
+	if len(f.calls) != 8 {
 		t.Fatalf("calls = %q", f.calls)
 	}
 }
@@ -139,6 +141,7 @@ func TestDestroyReturnsExactClaimAndVerifiesGone(t *testing.T) {
 func TestDestroyRecoversPendingClaimByHolder(t *testing.T) {
 	answers := clean()
 	answers[statusCall] = []reply{
+		{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})},
 		{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})},
 		{out: status(t, slot{Name: "3", Path: slotPath, Status: "available"})},
 	}
@@ -235,7 +238,7 @@ func TestDestroyRefusesUnlandedWork(t *testing.T) {
 func TestDestroyDiscardOverrideForcesReturn(t *testing.T) {
 	f := &fake{answers: map[string][]reply{
 		statusCall: {
-			{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})},
+			{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID), Processes: []process{{Name: "writer", PID: 42}}})},
 			{out: status(t, slot{Name: "3", Path: slotPath, Status: "available"})},
 		},
 		"treehouse return " + slotPath + " --if-lease-id tok-A --if-lease-holder dibs:" + leaseID + " --force": {{out: ""}},
@@ -245,6 +248,33 @@ func TestDestroyDiscardOverrideForcesReturn(t *testing.T) {
 	if err := (worktree{f.run}).Destroy(context.Background(), ref); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestDestroyRefusesActiveProcessesAndMovingHead(t *testing.T) {
+	leased := slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)}
+	t.Run("process", func(t *testing.T) {
+		f := &fake{answers: map[string][]reply{statusCall: {{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID), Processes: []process{{Name: "writer", PID: 42}}})}}}}
+		var blocker *adapterpkg.UnlandedError
+		err := (worktree{f.run}).Destroy(context.Background(), target(slotPath, "tok-A"))
+		if !errors.As(err, &blocker) || len(blocker.Processes) != 1 || blocker.Processes[0].PID != 42 || len(f.calls) != 1 {
+			t.Fatalf("err=%v calls=%q", err, f.calls)
+		}
+	})
+	t.Run("head changed", func(t *testing.T) {
+		answers := clean()
+		answers[statusCall] = []reply{{out: status(t, leased)}, {out: status(t, leased)}}
+		answers["git -C "+slotPath+" rev-parse HEAD"] = []reply{{out: "head-A\n"}, {out: "head-B\n"}}
+		f := &fake{answers: answers}
+		err := (worktree{f.run}).Destroy(context.Background(), target(slotPath, "tok-A"))
+		if err == nil || !strings.Contains(err.Error(), "HEAD changed") {
+			t.Fatalf("err = %v", err)
+		}
+		for _, call := range f.calls {
+			if strings.HasPrefix(call, "treehouse return") {
+				t.Fatal("returned after HEAD changed")
+			}
+		}
+	})
 }
 
 func TestDestroyFailuresRetainLease(t *testing.T) {
@@ -257,10 +287,10 @@ func TestDestroyFailuresRetainLease(t *testing.T) {
 	}{
 		"status unavailable":     {statuses: []reply{{err: adapterpkg.CommandError{Code: 1}}}, want: "resource operation failed"},
 		"status unreadable":      {statuses: []reply{{out: "{"}}, want: "cannot read treehouse status"},
-		"treehouse kept dirty":   {statuses: []reply{{out: leased}}, ret: reply{err: adapterpkg.CommandError{Code: notReturned}}, want: "uncommitted changes"},
-		"return failed":          {statuses: []reply{{out: leased}}, ret: reply{err: adapterpkg.CommandError{Code: 1}}, want: "resource operation failed"},
-		"claim survived":         {statuses: []reply{{out: leased}, {out: leased}}, want: "survived"},
-		"verify listing failure": {statuses: []reply{{out: leased}, {err: errors.New("busy")}}, want: "busy"},
+		"treehouse kept dirty":   {statuses: []reply{{out: leased}, {out: leased}}, ret: reply{err: adapterpkg.CommandError{Code: notReturned}}, want: "uncommitted changes"},
+		"return failed":          {statuses: []reply{{out: leased}, {out: leased}}, ret: reply{err: adapterpkg.CommandError{Code: 1}}, want: "resource operation failed"},
+		"claim survived":         {statuses: []reply{{out: leased}, {out: leased}, {out: leased}}, want: "survived"},
+		"verify listing failure": {statuses: []reply{{out: leased}, {out: leased}, {err: errors.New("busy")}}, want: "busy"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			answers := clean()
@@ -340,11 +370,13 @@ func TestAdoptedReturnIsConditionalOnTokenOnly(t *testing.T) {
 	f := &fake{answers: map[string][]reply{
 		statusCall: {
 			{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: "caller"})},
+			{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: "caller"})},
 			{out: status(t, slot{Name: "3", Path: slotPath, Status: "available"})},
 		},
 		"git -C " + slotPath + " status --porcelain --untracked-files=all": {{out: ""}},
 		"git -C " + slotPath + " log --format=%H HEAD --not --remotes --":  {{out: ""}},
 		"treehouse return " + slotPath + " --if-lease-id tok-A":            {{out: ""}},
+		"git -C " + slotPath + " rev-parse HEAD":                           {{out: "head-A\n"}, {out: "head-A\n"}},
 	}}
 	ref := target(slotPath, "tok-A")
 	ref.Ref.Adopted, ref.Ref.Holder, ref.Ref.Root = true, "", ""
