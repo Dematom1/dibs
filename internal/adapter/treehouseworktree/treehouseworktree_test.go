@@ -41,6 +41,11 @@ func (f *fake) run(_ context.Context, dir string, env []string, name string, arg
 
 func status(t *testing.T, slots ...slot) string {
 	t.Helper()
+	for i := range slots {
+		if slots[i].Processes == nil {
+			slots[i].Processes = []process{}
+		}
+	}
 	data, err := json.Marshal(slots)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +167,25 @@ func TestDestroyNeverReturnsReassignedSlot(t *testing.T) {
 	}
 	if len(f.calls) != 1 {
 		t.Fatalf("touched a reassigned slot: %q", f.calls)
+	}
+}
+
+func TestDestroyRejectsNullOrMalformedStatus(t *testing.T) {
+	for name, response := range map[string]string{
+		"null":                    "null",
+		"entry missing path":      `[{"status":"available","lease_id":"","lease_holder":"","processes":[]}]`,
+		"entry missing processes": `[{"path":"` + slotPath + `","status":"leased","lease_id":"tok-A","lease_holder":"dibs:` + leaseID + `"}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{answers: map[string][]reply{statusCall: {{out: response}}}}
+			err := (worktree{f.run}).Destroy(context.Background(), target("", ""))
+			if err == nil || !strings.Contains(err.Error(), "cannot read treehouse status") {
+				t.Fatalf("err = %v", err)
+			}
+			if len(f.calls) != 1 {
+				t.Fatalf("continued after invalid listing: %q", f.calls)
+			}
+		})
 	}
 }
 

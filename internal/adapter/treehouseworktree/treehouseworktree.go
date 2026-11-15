@@ -64,9 +64,28 @@ func (w worktree) slots(ctx context.Context, ref adapterpkg.ResourceRef) ([]slot
 	if err != nil {
 		return nil, err
 	}
-	var slots []slot
-	if err := json.Unmarshal(out, &slots); err != nil {
+	var raw []json.RawMessage
+	trimmed := strings.TrimSpace(string(out))
+	if len(trimmed) == 0 || trimmed[0] != '[' || json.Unmarshal(out, &raw) != nil {
 		return nil, errors.New("cannot read treehouse status --json; lease retained")
+	}
+	slots := make([]slot, 0, len(raw))
+	for _, entry := range raw {
+		var fields map[string]json.RawMessage
+		var s slot
+		if json.Unmarshal(entry, &fields) != nil || fields == nil ||
+			json.Unmarshal(fields["path"], &s.Path) != nil || s.Path == "" ||
+			json.Unmarshal(fields["status"], &s.Status) != nil || s.Status == "" ||
+			json.Unmarshal(fields["lease_id"], &s.LeaseID) != nil ||
+			json.Unmarshal(fields["lease_holder"], &s.LeaseHolder) != nil ||
+			len(fields["processes"]) == 0 || fields["processes"][0] != '[' ||
+			json.Unmarshal(fields["processes"], &s.Processes) != nil {
+			return nil, errors.New("cannot read treehouse status --json; lease retained")
+		}
+		if err := json.Unmarshal(entry, &s); err != nil {
+			return nil, errors.New("cannot read treehouse status --json; lease retained")
+		}
+		slots = append(slots, s)
 	}
 	return slots, nil
 }

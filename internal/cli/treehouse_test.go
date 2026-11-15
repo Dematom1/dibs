@@ -25,7 +25,7 @@ import (
 
 // fakePool is a one-slot treehouse pool and its git checkout, answering only the calls the adapter makes.
 type fakePool struct {
-	repo, slot, claim, holder, dirty string
+	repo, slot, claim, holder, dirty, statusOverride string
 }
 
 func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
@@ -39,11 +39,14 @@ func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, arg
 		p.claim, p.holder = "tok-A", args[4]
 		return json.Marshal(map[string]string{"path": p.slot, "lease_id": p.claim, "lease_holder": p.holder})
 	case strings.HasPrefix(call, "treehouse status --json"):
+		if p.statusOverride != "" {
+			return []byte(p.statusOverride), nil
+		}
 		status := "available"
 		if p.claim != "" {
 			status = "leased"
 		}
-		return json.Marshal([]map[string]string{{"name": "3", "path": p.slot, "status": status, "lease_id": p.claim, "lease_holder": p.holder}})
+		return json.Marshal([]map[string]any{{"name": "3", "path": p.slot, "status": status, "lease_id": p.claim, "lease_holder": p.holder, "processes": []any{}}})
 	case strings.HasSuffix(call, "status --porcelain --untracked-files=all"):
 		return []byte(p.dirty), nil
 	case strings.Contains(call, " log --format=%H HEAD --not "):
@@ -139,6 +142,25 @@ func TestTreehouseWorktreeOutputModes(t *testing.T) {
 	}
 	if got := drive(t, app, outputpkg.JSON, 0, "release", id, "--confirm"); !strings.Contains(got, "already absent") {
 		t.Fatalf("repeat release = %s", got)
+	}
+}
+
+func TestTreehouseMalformedStatusRetainsLease(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("TREEHOUSE_ROOT", "")
+	pool := &fakePool{repo: "/work/app", slot: "/pool/app-1/3/app"}
+	app := fakeTreehouseApp(pool)
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	created := drive(t, app, outputpkg.JSON, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app", "--owner", owner, "--ttl", "1h")
+	var result map[string]any
+	if err := json.Unmarshal([]byte(created), &result); err != nil {
+		t.Fatal(err)
+	}
+	id := result["lease"].(map[string]any)["id"].(string)
+	pool.statusOverride = "null"
+	drive(t, app, outputpkg.JSON, 1, "release", id, "--confirm")
+	if listing := drive(t, app, outputpkg.JSON, 0, "ps", "--full"); !strings.Contains(listing, id) {
+		t.Fatalf("malformed allocator status forgot lease %s: %s", id, listing)
 	}
 }
 
