@@ -61,6 +61,29 @@ func adoptionRequest(t *testing.T, driver string) AdoptRequest {
 	}
 	return AdoptRequest{Owner: o, TTL: time.Hour, Resource: adapterpkg.ResourceRef{Adapter: driver, Name: "existing-lab", Context: "test-context", DockerHost: "unix:///test.sock"}, File: file}
 }
+func TestKeyedComposeAdoptMatchesFile(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	m := inventoryManager(t, "compose", inventoryRunner(t, "compose", "existing-lab"))
+	r := adoptionRequest(t, "compose")
+	r.Key = "compose-adopt"
+	lease, done, err := m.Adopt(context.Background(), r)
+	if err != nil || done {
+		t.Fatalf("adopt: done=%v err=%v", done, err)
+	}
+	retry := r
+	retry.File, err = filepath.Abs(r.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, done, err := m.Adopt(context.Background(), retry); err != nil || !done || got.ID != lease.ID {
+		t.Fatalf("same absolute file retry: done=%v err=%v", done, err)
+	}
+	retry.File = filepath.Join(t.TempDir(), "other-compose.yaml")
+	if _, _, err := m.Adopt(context.Background(), retry); reason(err) != "key_conflict" {
+		t.Fatalf("different Compose file accepted: %v", err)
+	}
+}
+
 func TestAdoptRefusalsAndDurability(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "")
 	for _, driver := range []string{"kind", "k3d", "compose"} {
@@ -80,7 +103,7 @@ func TestAdoptRefusalsAndDurability(t *testing.T) {
 			if _, err := os.Stat(m.options.Directory + "/state.json"); !os.IsNotExist(err) {
 				t.Fatal("inventory wrote state")
 			}
-			l, err := m.Adopt(ctx, r)
+			l, _, err := m.Adopt(ctx, r)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +114,7 @@ func TestAdoptRefusalsAndDurability(t *testing.T) {
 			if err != nil || disk.Version != 2 || disk.Leases[l.ID].ResourceRef.Name != r.Resource.Name {
 				t.Fatalf("not durable: %v %v", disk, err)
 			}
-			if _, err := m.Adopt(ctx, r); err == nil || !strings.Contains(err.Error(), "already under") {
+			if _, _, err := m.Adopt(ctx, r); err == nil || !strings.Contains(err.Error(), "already under") {
 				t.Fatalf("duplicate accepted: %v", err)
 			}
 			alias := r.Resource
@@ -132,7 +155,7 @@ func TestAdoptRefusalsAndDurability(t *testing.T) {
 				panic("unreachable")
 			}
 			m := inventoryManager(t, "kind", run)
-			if _, err := m.Adopt(context.Background(), adoptionRequest(t, "kind")); err == nil {
+			if _, _, err := m.Adopt(context.Background(), adoptionRequest(t, "kind")); err == nil {
 				t.Fatal("unverified adoption accepted")
 			}
 			if _, err := os.Stat(m.options.Directory + "/state.json"); !os.IsNotExist(err) {
@@ -189,5 +212,34 @@ func TestReadOnlyInventoryAndStateMigration(t *testing.T) {
 	s.Leases[l.ID] = l
 	if err := s.validate(); err == nil {
 		t.Fatal("generated naming restriction removed")
+	}
+}
+func TestProtectedAdoptReattachesOnlyToPinnedEndpoint(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	for _, driver := range []string{"kind", "k3d", "compose"} {
+		t.Run(driver, func(t *testing.T) {
+			ctx := context.Background()
+			m := inventoryManager(t, driver, inventoryRunner(t, driver, "existing-lab"))
+			r := adoptionRequest(t, driver)
+			r.TTL, r.ProtectLiveOwner = time.Nanosecond, true
+			l, _, err := m.Adopt(ctx, r)
+			if err != nil || !l.ProtectLiveOwner {
+				t.Fatalf("protected adoption: %+v %v", l, err)
+			}
+			if _, status, err := m.Extend(ctx, l.ID, time.Nanosecond); err != nil || status != Reattached {
+				t.Fatalf("late renew on pinned endpoint = %q, %v", status, err)
+			}
+			moved := inventoryRunner(t, driver, "existing-lab")
+			m.options.Adapters = inventoryManager(t, driver, func(ctx context.Context, env []string, tool string, args ...string) ([]byte, error) {
+				if strings.Contains(strings.Join(args, " "), "context inspect") {
+					return []byte("unix:///other.sock"), nil
+				}
+				return moved(ctx, env, tool, args...)
+			}).options.Adapters
+			var refusal *RenewRefusal
+			if _, _, err := m.Extend(ctx, l.ID, time.Hour); !errors.As(err, &refusal) || refusal.Reason != ResourceUnknown {
+				t.Fatalf("renew through a moved context = %v", err)
+			}
+		})
 	}
 }

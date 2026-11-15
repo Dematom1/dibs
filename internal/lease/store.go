@@ -20,8 +20,10 @@ import (
 
 var leaseID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
-// stateVersion is the newest state schema this binary reads and writes.
-const stateVersion = 2
+// stateVersion is the newest state schema this binary reads and writes:
+// 3 adds live-owner protection, 4 adds idempotency keys and pending leases,
+// 5 adds lease policies and shell leases.
+const stateVersion = 5
 
 type store struct {
 	Version int `json:"version"`
@@ -40,7 +42,12 @@ func stateDir() (string, error) { return resolveStateDir(true) }
 
 func resolveStateDir(publish bool) (string, error) {
 	if dir := compat.Env("STATE"); dir != "" {
-		return filepath.Abs(dir)
+		// A relative ledger path would split the host-wide lock by working directory.
+		if !filepath.IsAbs(dir) {
+			abs, _ := filepath.Abs(dir)
+			return "", fmt.Errorf("DIBS_STATE must be an absolute path, got %q; set an absolute path (from this directory it would resolve to %q)", dir, abs)
+		}
+		return filepath.Clean(dir), nil
 	}
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
@@ -159,18 +166,8 @@ func (m *Manager) openStore(ctx context.Context, dir string) (*store, error) {
 
 // decode refuses a newer schema before reading fields whose meaning it may change.
 func (s *store) decode(data []byte) error {
-	var header struct {
-		Version int             `json:"version"`
-		Writer  json.RawMessage `json:"writer_version"`
-	}
-	if json.Unmarshal(data, &header) == nil && header.Version > stateVersion {
-		// writer_version is optional diagnostics; a malformed one must not mask the refusal.
-		var recorded string
-		writer := ""
-		if json.Unmarshal(header.Writer, &recorded) == nil && recorded != "" {
-			writer = " written by dibs " + recorded
-		}
-		return fmt.Errorf("state version %d%s is newer than this binary supports (state version %d, dibs %s); upgrade dibs, and run `which -a dibs berth` to find a stale binary earlier on PATH", header.Version, writer, stateVersion, s.binary)
+	if err := refuseNewer(data, stateVersion, s.binary); err != nil {
+		return err
 	}
 	if err := json.Unmarshal(data, s); err != nil {
 		return err
@@ -178,10 +175,29 @@ func (s *store) decode(data []byte) error {
 	return s.validate()
 }
 
+// refuseNewer is the check every reader since writer_version applies with its own newest version.
+func refuseNewer(data []byte, newest int, binary string) error {
+	var header struct {
+		Version int             `json:"version"`
+		Writer  json.RawMessage `json:"writer_version"`
+	}
+	if json.Unmarshal(data, &header) != nil || header.Version <= newest {
+		return nil
+	}
+	// writer_version is optional diagnostics; a malformed one must not mask the refusal.
+	var recorded string
+	writer := ""
+	if json.Unmarshal(header.Writer, &recorded) == nil && recorded != "" {
+		writer = " written by dibs " + recorded
+	}
+	return fmt.Errorf("state version %d%s is newer than this binary supports (state version %d, dibs %s); upgrade dibs, and run `which -a dibs berth` to find a stale binary earlier on PATH", header.Version, writer, newest, binary)
+}
+
 func (s *store) validate() error {
 	if s.Version < 1 || s.Version > stateVersion || s.Leases == nil {
 		return errors.New("unsupported or incomplete state format")
 	}
+	keys := map[string]bool{}
 	for _, w := range s.Waiters {
 		if !leaseID.MatchString(w.ID) || w.Machine == "" || w.Expires.IsZero() || (w.Owner.Kind != "pid" && w.Owner.Kind != "session") || w.Owner.Identity == "" {
 			return errors.New("invalid queue record")
@@ -191,8 +207,38 @@ func (s *store) validate() error {
 		if !leaseID.MatchString(id) || id != l.ID || l.Machine == "" || l.Created.IsZero() || l.Expires.IsZero() || l.TTL <= 0 {
 			return errors.New("invalid lease record")
 		}
+		if l.ProtectLiveOwner && s.Version < 3 {
+			return errors.New("invalid live-owner protection")
+		}
+		if (l.Policy != nil || l.DeadSince != nil || l.ResourceRef.Process != nil) && s.Version < 5 {
+			return errors.New("invalid lease policy or shell record")
+		}
+		if l.DeadSince != nil && (l.Policy == nil || l.Policy.Grace == 0) {
+			return errors.New("invalid owner death record")
+		}
+		if l.Policy != nil {
+			if err := l.Policy.Validate(); err != nil {
+				return fmt.Errorf("invalid recorded lease policy: %w", err)
+			}
+		}
+		if l.KeyedBy != "" && l.KeyedBy != "create" && l.KeyedBy != "pending" && l.KeyedBy != "adopt" || l.KeyedBy != "" && l.Key == "" {
+			return errors.New("invalid lease key mode")
+		}
+		if l.Key != "" {
+			if s.Version < 4 || !ValidKey(l.Key) || keys[l.Machine+"\x00"+l.Key] {
+				return errors.New("invalid lease key")
+			}
+			keys[l.Machine+"\x00"+l.Key] = true
+		}
+		if l.ResourceRef.Pending {
+			d, ok := s.resources.Lookup(l.ResourceRef.Adapter)
+			if s.Version < 4 || l.ResourceRef.Adopted || l.Reservation != nil || !ok || d.Discover == nil || (l.ResourceRef.Name != "" && !adapterpkg.ValidResourceName(l.ResourceRef.Name)) {
+				return errors.New("invalid pending resource")
+			}
+			continue
+		}
 		if l.ResourceRef.Adapter == "process" {
-			if l.Reservation == nil || l.Reservation.Budget.Cores <= 0 || l.Reservation.Budget.Memory <= 0 || l.Reservation.Class == "" {
+			if l.ProtectLiveOwner || l.Reservation == nil || l.Reservation.Budget.Cores <= 0 || l.Reservation.Budget.Memory <= 0 || l.Reservation.Class == "" {
 				return errors.New("invalid job reservation")
 			}
 			if leader := l.Reservation.Leader; leader.ID != "" {
@@ -226,6 +272,7 @@ func (s *store) IDs() []string {
 }
 
 func (s *store) Save() error {
+	s.settleVersion()
 	s.Writer = s.binary
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

@@ -20,6 +20,7 @@ import (
 	leasepkg "github.com/Dematom1/dibs/internal/lease"
 	outputpkg "github.com/Dematom1/dibs/internal/output"
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 	remotepkg "github.com/Dematom1/dibs/internal/remote"
 )
 
@@ -49,6 +50,17 @@ func (app application) leaseError(out io.Writer, mode outputpkg.Mode, command st
 		}
 	}
 	return outputpkg.Error(out, mode, 1, err.Error(), hint)
+}
+func renewRefused(out io.Writer, mode outputpkg.Mode, id string, refusal *leasepkg.RenewRefusal) int {
+	hint := map[string]string{
+		leasepkg.OwnerDead:       "Run dibs release " + id + " --confirm or dibs sweep --confirm to reclaim it",
+		leasepkg.OwnerUnknown:    "Retry dibs extend " + id + " later; the lease is retained and not reclaimable",
+		leasepkg.ResourceAbsent:  "Run dibs release " + id + " --confirm, then lease a new resource",
+		leasepkg.ResourceUnknown: "Retry dibs extend " + id + " once the resource tool is reachable; the lease is retained",
+		leasepkg.MaxLifetime:     "Run dibs release " + id + " --confirm, then acquire a new lease; its policy caps how long one lease may live",
+	}[refusal.Reason]
+	outputpkg.Emit(out, mode, map[string]any{"code": "COMMAND_FAILED", "exit_code": 3, "error": refusal.Error(), "reason": refusal.Reason, "id": id, "help": []string{hint}})
+	return 3
 }
 
 // worktreeFlags confines --repo and --landed-exclude-remote to treehouse-worktree
@@ -86,6 +98,7 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 	topHelp := len(args) == 1 && args[0] == "--help"
 	// Global output flags may also precede the command.
 	jsonOutput := outputpkg.Auto
+	explicitOutputMode := false
 	for len(args) > 0 {
 		name, value, hasValue := strings.Cut(args[0], "=")
 		if name != "--json" && name != "--axi" {
@@ -97,6 +110,7 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		if err := outputpkg.SetFlag(&jsonOutput, outputpkg.Mode(strings.TrimPrefix(name, "--")), value); err != nil {
 			return outputpkg.Error(out, jsonOutput, 2, err.Error(), "Choose --axi for agents or --json for scripts")
 		}
+		explicitOutputMode = true
 		args = args[1:]
 		home = len(args) == 0
 	}
@@ -148,14 +162,17 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 	if command == "adopt" || command == "orphans" {
 		return app.runInventory(ctx, command, args, out, jsonOutput)
 	}
+	if command == "reconcile" || command == "reclaim" || command == "explain" {
+		return app.runContract(ctx, command, args, out, jsonOutput)
+	}
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	wantHelp := fs.Bool("help", false, "show help")
 	outputpkg.Flags(fs, &jsonOutput)
 	full := fs.Bool("full", false, "complete AXI records, text and list (JSON is always complete)")
-	var owner, resources, driver, file, machineName, repo string
-	var ttl, stale time.Duration
-	var confirm, quiet, discard bool
+	var owner, resources, driver, file, machineName, key, name, repo string
+	var ttl, stale, idle, maxLifetime time.Duration
+	var confirm, quiet, pending, protect, discard bool
 	labels := labelsFlag{}
 	var excluded listFlag
 	if command == "list" || command == "sweep" {
@@ -173,6 +190,12 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		fs.StringVar(&driver, "adapter", "none", "managed resource adapter")
 		fs.StringVar(&file, "file", "", "compose file")
 		fs.Var(labels, "label", "lease metadata key=value (repeatable)")
+		fs.StringVar(&key, "key", "", "idempotency key")
+		fs.BoolVar(&pending, "pending", false, "record the lease before the caller creates the resource")
+		fs.StringVar(&name, "name", "", "pending resource handle")
+		fs.BoolVar(&protect, "protect-live-owner", false, "reclaim only on proven owner death")
+		fs.DurationVar(&idle, "idle", 0, "tighter policy idle timeout")
+		fs.DurationVar(&maxLifetime, "max-lifetime", 0, "tighter policy maximum lifetime")
 		fs.StringVar(&repo, "repo", "", "treehouse-worktree repository (default current directory)")
 		fs.Var(&excluded, "landed-exclude-remote", "treehouse-worktree remote whose refs do not count as landed (repeatable)")
 	}
@@ -207,7 +230,21 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		return outputpkg.Error(out, jsonOutput, 2, "--ttl must be positive", help(command))
 	}
 	if command == "create" {
-		if err := app.resources.CheckCreate(driver, file); err != nil {
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "axi" || f.Name == "json" {
+				explicitOutputMode = true
+			}
+		})
+		if (pending || key != "" || name != "") && !consumerContractEnabled() {
+			return outputpkg.Error(out, jsonOutput, 2, consumerContractOff, help(command))
+		}
+		if quiet && (pending || key != "") && explicitOutputMode {
+			return outputpkg.Error(out, jsonOutput, 2, "--quiet cannot be combined with --axi or --json for contract creates", help(command))
+		}
+		if protect && !liveOwnerProtectionEnabled() {
+			return outputpkg.Error(out, jsonOutput, 2, liveOwnerProtectionOff, help(command))
+		}
+		if err := app.checkCreate(driver, file, key, name, pending); err != nil {
 			return outputpkg.Error(out, jsonOutput, 2, err.Error(), help(command))
 		}
 		if err := worktreeFlags(driver, &repo, excluded); err != nil {
@@ -246,6 +283,7 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 	}
 	now := time.Now().UTC()
 	var newOwner ownerpkg.Reference
+	var leasePolicy *policypkg.Policy
 	if command == "create" {
 		if owner == "" {
 			owner = compat.Env("OWNER")
@@ -256,6 +294,11 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		var err error
 		newOwner, err = app.owners.Bind(ctx, owner, stale, now)
 		if err != nil {
+			return outputpkg.Error(out, jsonOutput, 2, err.Error(), help(command))
+		}
+		explicitTTL := false
+		fs.Visit(func(f *flag.Flag) { explicitTTL = explicitTTL || f.Name == "ttl" })
+		if leasePolicy, ttl, err = app.leasePolicy(driver, newOwner.Kind, ttl, explicitTTL, idle, maxLifetime); err != nil {
 			return outputpkg.Error(out, jsonOutput, 2, err.Error(), help(command))
 		}
 	}
@@ -294,21 +337,69 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 			result["bin"], result["description"] = bin, "Owner-and-expiry leases for local stacks and clusters"
 		}
 	case "create":
-		l, createErr := app.leases.Create(ctx, leasepkg.CreateRequest{Owner: newOwner, TTL: ttl, Description: resources, Labels: labels, Adapter: driver, File: file, Repo: repo, ExcludeRemotes: excluded})
+		request := leasepkg.CreateRequest{Owner: newOwner, TTL: ttl, Description: resources, Labels: labels, Adapter: driver, File: file, Key: key, Pending: pending, Name: name, ProtectLiveOwner: protect, Policy: leasePolicy, Repo: repo, ExcludeRemotes: excluded}
+		if d, _ := app.resources.Lookup(driver); key != "" && !pending && driver != "none" && !d.HostScoped {
+			// A keyed retry must match the Docker scope it was first made in; an unreachable
+			// engine still lets the retry find its lease, but never creates a new one.
+			if scope, scopeErr := adapterpkg.ResolveDockerContext(ctx, "", adapterpkg.RunCommand); scopeErr != nil {
+				request.ScopeUnavailable = scopeErr
+			} else {
+				request.Scope = scope
+			}
+		}
+		if pending {
+			if file != "" {
+				var fileErr error
+				if request.File, fileErr = filepath.Abs(file); fileErr != nil {
+					return outputpkg.Error(out, jsonOutput, 2, fileErr.Error(), help(command))
+				}
+			}
+			// Pin the scope now: reconcile must look where the caller will build the resource.
+			scope, scopeErr := adapterpkg.ResolveDockerContext(ctx, "", adapterpkg.RunCommand)
+			if scopeErr != nil {
+				if key == "" {
+					return outputpkg.Error(out, jsonOutput, 1, scopeErr.Error(), "Select a reachable Docker context and retry dibs create")
+				}
+				request.ScopeUnavailable = scopeErr
+			} else {
+				request.Scope = scope
+			}
+		}
+		l, done, createErr := app.leases.Create(ctx, request)
 		if createErr != nil {
+			if key != "" || pending {
+				return app.contractError(out, jsonOutput, command, "", createErr)
+			}
 			err = createErr
 			break
 		}
-		now = l.Created
+		if quiet {
+			fmt.Fprintln(out, l.ID)
+			return 0
+		}
+		if !done {
+			now = l.Created
+		}
+		kube := kubeconfigFor(app.resources, l)
 		hints := []string{"Run dibs extend " + l.ID + " --ttl " + ttl.String(), "Run dibs release " + l.ID + " --confirm to reclaim"}
 		if l.ResourceRef.Path != "" {
 			hints = append([]string{"Work in " + remotepkg.ShellQuote(l.ResourceRef.Path) + "; never run treehouse return on it, release the lease instead"}, hints...)
 		}
-		result = map[string]any{"lease": outputpkg.LeaseView(l, ownerpkg.Alive, now, kubeconfigFor(app.resources, l)), "help": hints}
-		result["record"] = outputpkg.LeaseRecord(l, kubeconfigFor(app.resources, l))
-		if quiet {
-			fmt.Fprintln(out, l.ID)
-			return 0
+		result = map[string]any{"lease": outputpkg.LeaseView(l, ownerpkg.Alive, now, kube), "help": hints}
+		result["record"] = outputpkg.LeaseRecord(l, kube)
+		if l.ResourceRef.Pending {
+			handle := l.ResourceRef.Name
+			if handle == "" {
+				handle = "<handle>"
+			}
+			result["help"] = []string{"Create the resource (stamp label " + leasepkg.LeaseLabel + "=" + l.ID + " when its tool picks the handle), then run dibs adopt " + l.ResourceRef.Adapter + " " + handle + " --pending " + l.ID, "After a crash, run dibs reconcile " + l.ID + " before creating it again"}
+		}
+		if key != "" || pending {
+			status := map[bool]string{false: "created", true: "recorded"}[pending]
+			if done {
+				status = "already_done"
+			}
+			result = contractResult(status, result)
 		}
 	case "env":
 		l, exists, getErr := app.leases.Get(ctx, fs.Arg(0))
@@ -326,33 +417,55 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		return 0
 	case "extend":
 		id := fs.Arg(0)
-		l, extendErr := app.leases.Extend(ctx, id, ttl)
+		contract := consumerContractEnabled()
+		l, status, extendErr := app.leases.Extend(ctx, id, ttl)
+		if extendErr != nil && contract {
+			return app.contractOperationError(out, jsonOutput, command, id, extendErr)
+		}
+		// Without the contract, only a protected lease's refusal exits 3, exactly as before.
+		var refusal *leasepkg.RenewRefusal
+		if errors.As(extendErr, &refusal) && !refusal.Legacy {
+			return renewRefused(out, jsonOutput, id, refusal)
+		}
 		err = extendErr
-		if err == nil {
-			now = l.Expires.Add(-ttl)
-			result = map[string]any{"lease": outputpkg.LeaseView(l, ownerpkg.Alive, now, kubeconfigFor(app.resources, l))}
+		if err != nil {
+			break
+		}
+		now = l.Expires.Add(-ttl)
+		result = map[string]any{"lease": outputpkg.LeaseView(l, ownerpkg.Alive, now, kubeconfigFor(app.resources, l)), "status": status, "help": []string{"Run dibs extend " + id + " --ttl " + ttl.String() + " to renew again"}}
+		if contract {
+			result["id"] = id
+			result = contractResult(status, result)
 		}
 	case "release":
 		id := fs.Arg(0)
-		released, releaseErr := app.leases.Release(ctx, leasepkg.ReleaseRequest{ID: id, Confirm: confirm, DiscardUnlanded: discard})
-		var unlanded *adapterpkg.UnlandedError
-		if errors.As(releaseErr, &unlanded) {
-			hints := []string{"Commit and push the work, then rerun dibs release " + id + " --confirm", "Run dibs release " + id + " --confirm --discard-unlanded only after proving the work landed elsewhere"}
-			if len(unlanded.Processes) > 0 {
-				hints = []string{"Stop the listed processes, then retry dibs release " + id + " --confirm"}
+		contract := consumerContractEnabled()
+		released, releaseErr := app.leases.Release(ctx, leasepkg.ReleaseRequest{ID: id, Confirm: confirm, Contract: contract, DiscardUnlanded: discard})
+		if code, ok := unlandedRefused(out, jsonOutput, id, releaseErr, contract, "release "+id+" --confirm"); ok {
+			return code
+		}
+		if !contract {
+			err = releaseErr
+			status := "already absent (no-op)"
+			if released.Exists {
+				status = "preview; rerun with --confirm to reclaim"
 			}
-			outputpkg.Emit(out, jsonOutput, map[string]any{"code": "COMMAND_FAILED", "exit_code": 1, "error": releaseErr.Error(), "id": id, "blockers": unlanded.View(), "help": hints})
-			return 1
+			if released.Released {
+				status = "released"
+			}
+			result = map[string]any{"id": id, "status": status}
+			break
 		}
-		err = releaseErr
-		status := "already absent (no-op)"
-		if released.Exists {
-			status = "preview; rerun with --confirm to reclaim"
+		if releaseErr != nil {
+			return app.contractOperationError(out, jsonOutput, command, id, releaseErr)
 		}
-		if released.Released {
-			status = "released"
+		status, hints := "already_done", []string{"Nothing to release; acquire a lease when the work needs the resource"}
+		if released.Exists && !confirm {
+			status, hints = "preview", []string{"Run dibs release " + id + " --confirm to destroy the resource and forget the lease"}
+		} else if released.Released {
+			status, hints = "released", []string{"The resource is released; acquire it again only if needed"}
 		}
-		result = map[string]any{"id": id, "status": status}
+		result = contractResult(status, map[string]any{"id": id, "help": hints})
 	case "sweep":
 		r, sweepErr := app.leases.Sweep(ctx, leasepkg.SweepRequest{Confirm: confirm})
 		if sweepErr != nil {
@@ -360,6 +473,10 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 			break
 		}
 		result = map[string]any{"confirmed": confirm, "eligible": r.Eligible, "reclaimed": r.Reclaimed, "unknown": r.Unknown}
+		if len(r.Held) > 0 {
+			// A fired condition that must not act yet: a busy resource, a grace period, or a report-only policy.
+			result["held"] = r.Held
+		}
 		if !confirm {
 			result["help"] = []string{"Run dibs sweep --confirm to reclaim eligible leases"}
 		}

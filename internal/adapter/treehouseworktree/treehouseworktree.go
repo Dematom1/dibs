@@ -182,6 +182,19 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	return nil
 }
 
+// exists reports whether the pool still carries the lease's claim; absence
+// needs the same evidence Destroy requires, and anything else is unknown.
+func (w worktree) exists(ctx context.Context, t adapterpkg.Target) (bool, error) {
+	slots, err := w.slots(ctx, t.Ref)
+	if err != nil {
+		return false, err
+	}
+	if _, held := claimed(slots, t.Ref); held {
+		return true, nil
+	}
+	return false, gone(slots, t.Ref)
+}
+
 // gone accepts absence only with evidence: no slot carries the claim, and the
 // pinned slot is either listed without it or no longer exists. A pending claim
 // with no recorded path relies on its holder label being absent from the pool.
@@ -324,7 +337,8 @@ func validate(_ string, metadata adapterpkg.Metadata, ref adapterpkg.ResourceRef
 // New always registers the definition so recorded leases stay readable and
 // releasable; enabled gates only creation and adoption.
 func New(run adapterpkg.DirRunner, enabled bool) adapterpkg.Definition {
-	return adapterpkg.Definition{Name: Name, Adapter: worktree{run}, CreateAllowed: enabled, VerifiesAdoption: enabled, CleanupOutsideLock: true, OptIn: OptIn,
+	w := worktree{run}
+	return adapterpkg.Definition{Name: Name, Adapter: w, CreateAllowed: enabled, VerifiesAdoption: enabled, CleanupOutsideLock: true, OptIn: OptIn, HostScoped: true, Exists: w.exists,
 		Prepare: func(ctx context.Context, r adapterpkg.PrepareRequest) (adapterpkg.ResourceRef, error) {
 			return prepare(ctx, r, run)
 		},

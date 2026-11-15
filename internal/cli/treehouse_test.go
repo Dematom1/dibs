@@ -268,3 +268,41 @@ func TestTreehouseWorktreeOptIn(t *testing.T) {
 		t.Fatalf("strict config load rejected treehouse_worktree_adapter: %+v, %v", c, err)
 	}
 }
+
+func TestTreehouseContractRefusesUnlandedWork(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("TREEHOUSE_ROOT", "")
+	t.Setenv("DIBS_CONSUMER_CONTRACT", "1")
+	// A worktree is host-scoped: a keyed create must not need a Docker engine.
+	t.Setenv("DOCKER_HOST", "tcp://docker.invalid:2375")
+	fixedBudget(t)
+	pool := &fakePool{repo: "/work/app", slot: "/pool/app-1/3/app"}
+	app := fakeTreehouseApp(pool)
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	var created map[string]any
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app", "--owner", owner, "--ttl", "1h", "--key", "task-7:worktree")), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := created["lease"].(map[string]any)["id"].(string)
+	if created["status"] != "created" || created["contract"] != float64(1) {
+		t.Fatalf("keyed create = %v", created)
+	}
+	if again := drive(t, app, outputpkg.AXI, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app", "--owner", owner, "--ttl", "1h", "--key", "task-7:worktree"); !strings.Contains(again, "status: already_done") || !strings.Contains(again, id) {
+		t.Fatalf("keyed retry allocated again:\n%s", again)
+	}
+	pool.dirty = " M a.txt\n"
+	var blocked map[string]any
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 3, "release", id, "--confirm")), &blocked); err != nil {
+		t.Fatal(err)
+	}
+	if blocked["reason"] != "unlanded_work" || blocked["contract"] != float64(1) || blocked["exit_code"] != float64(3) || blocked["blockers"].(map[string]any)["uncommitted_count"] != float64(1) {
+		t.Fatalf("contract release refusal = %v", blocked)
+	}
+	if pool.claim != "tok-A" {
+		t.Fatal("refusal returned the slot")
+	}
+	pool.dirty = ""
+	if got := drive(t, app, outputpkg.AXI, 0, "release", id, "--confirm"); !strings.Contains(got, "status: released") {
+		t.Fatalf("release = %s", got)
+	}
+}

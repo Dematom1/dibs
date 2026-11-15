@@ -438,7 +438,7 @@ func TestValidateRejectsTamperedIdentity(t *testing.T) {
 
 func TestDefinitionOptIn(t *testing.T) {
 	off, on := New(nil, false), New(nil, true)
-	if off.CreateAllowed || off.VerifiesAdoption || !on.CreateAllowed || !on.VerifiesAdoption || !off.CleanupOutsideLock || off.OptIn == "" || off.Discover != nil {
+	if off.CreateAllowed || off.VerifiesAdoption || !on.CreateAllowed || !on.VerifiesAdoption || !off.CleanupOutsideLock || off.OptIn == "" || off.Discover != nil || !off.HostScoped || off.Exists == nil {
 		t.Fatalf("off = %+v, on = %+v", off, on)
 	}
 	err := adapterpkg.NewRegistry(off).CheckCreate(Name, "")
@@ -447,5 +447,33 @@ func TestDefinitionOptIn(t *testing.T) {
 	}
 	if err := adapterpkg.NewRegistry(on).CheckCreate(Name, ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExistsFollowsTheClaim(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone")
+	present := t.TempDir()
+	for name, tc := range map[string]struct {
+		path    string
+		listed  slot
+		want    bool
+		wantErr bool
+	}{
+		"claim still held":                 {slotPath, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: "dibs:" + leaseID}, true, false},
+		"slot listed without the claim":    {slotPath, slot{Name: "3", Path: slotPath, Status: "available"}, false, false},
+		"pinned slot deleted":              {missing, slot{Name: "9", Path: "/elsewhere", Status: "available"}, false, false},
+		"pinned slot unlisted but present": {present, slot{Name: "9", Path: "/elsewhere", Status: "available"}, false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{answers: map[string][]reply{statusCall: {{out: status(t, tc.listed)}}}}
+			got, err := (worktree{f.run}).exists(context.Background(), target(tc.path, "tok-A"))
+			if got != tc.want || (err != nil) != tc.wantErr {
+				t.Fatalf("exists = %v, %v", got, err)
+			}
+		})
+	}
+	f := &fake{answers: map[string][]reply{statusCall: {{out: "null"}}}}
+	if got, err := (worktree{f.run}).exists(context.Background(), target(slotPath, "tok-A")); got || err == nil {
+		t.Fatalf("unreadable listing = %v, %v", got, err)
 	}
 }

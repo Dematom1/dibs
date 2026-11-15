@@ -6,6 +6,7 @@ import (
 	"fmt"
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,48 +27,64 @@ func (m *Manager) readInventoryStore(dir string) (*store, error) {
 	return s, nil
 }
 func resourceLeased(ctx context.Context, s *store, r adapterpkg.ResourceRef, run adapterpkg.CommandRunner) (bool, error) {
-	for _, l := range s.Leases {
-		if l.ResourceRef.Adapter != r.Adapter || l.ResourceRef.Name != r.Name {
-			continue
-		}
-		if l.ResourceRef.Context == r.Context || l.ResourceRef.DockerHost == r.DockerHost {
-			return true, nil
-		}
-		other, err := adapterpkg.ResolveDockerContext(ctx, l.ResourceRef.Context, run)
-		if err != nil {
-			return false, errors.New("cannot rule out an existing lease in another Docker context")
-		}
-		if other.DockerHost == r.DockerHost {
-			return true, nil
-		}
-	}
-	return false, nil
+	id, err := claimant(ctx, s, r, nil, "", run)
+	return id != "", err
 }
 
 type AdoptRequest struct {
-	Owner          ownerpkg.Reference
-	TTL            time.Duration
-	Resource       adapterpkg.ResourceRef
-	File           string
-	ExcludeRemotes []string
+	Owner            ownerpkg.Reference
+	TTL              time.Duration
+	Resource         adapterpkg.ResourceRef
+	File             string
+	ExcludeRemotes   []string
+	ProtectLiveOwner bool
+	Policy           *policypkg.Policy
+	Key              string
+	// Pending binds Resource.Name to this pending lease instead of a new one.
+	Pending string
 }
 
-func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, error) {
-	s, _, now, err := m.open(ctx)
+// Adopt reports true when the request was already done and nothing changed.
+func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, bool, error) {
+	if r.Pending == "" && r.Key != "" && r.Resource.Adapter == "compose" && r.File != "" {
+		var err error
+		r.File, err = filepath.Abs(r.File)
+		if err != nil {
+			return Lease{}, false, err
+		}
+	}
+	s, host, now, err := m.open(ctx)
 	if err != nil {
-		return Lease{}, err
+		return Lease{}, false, err
 	}
 	defer s.Close()
+	if r.Pending != "" {
+		return m.bindPending(ctx, s, host, PendingRequest{ID: r.Pending, Adapter: r.Resource.Adapter, Handle: r.Resource.Name, File: r.File, Scope: r.Resource})
+	}
+	if l, done, err := keyed(s, host, r.Key, func(l Lease) bool {
+		ref := l.ResourceRef
+		return l.KeyedBy == "adopt" && sameOwner(l.Owner, r.Owner) && l.ProtectLiveOwner == r.ProtectLiveOwner && ref.Adapter == r.Resource.Adapter && sameAdopted(ref, r.Resource) && ref.DockerHost == r.Resource.DockerHost && (r.Resource.Adapter != "compose" || l.PendingFile == r.File)
+	}); done || err != nil {
+		return l, done, err
+	}
 	if m.checkOwner(r.Owner, now) != ownerpkg.Alive {
-		return Lease{}, errors.New("owner became unavailable while waiting; refresh the owner and retry dibs adopt")
+		return Lease{}, false, errors.New("owner became unavailable while waiting; refresh the owner and retry dibs adopt")
 	}
 	l, err := newLease(r.Owner, r.TTL, "adopted existing resource", nil, now)
 	if err != nil {
-		return Lease{}, err
+		return Lease{}, false, err
+	}
+	l.Key = r.Key
+	if r.Key != "" {
+		l.KeyedBy = "adopt"
+	}
+	l.ProtectLiveOwner, l.Policy = r.ProtectLiveOwner, r.Policy
+	if r.Key != "" && r.Resource.Adapter == "compose" {
+		l.PendingFile = r.File
 	}
 	d, ok := m.options.Adapters.Lookup(r.Resource.Adapter)
 	if !ok || d.RequiresFile != (r.File != "") || (d.Discover == nil && !d.VerifiesAdoption) {
-		return Lease{}, errors.New("unsupported adoption target or missing Compose file")
+		return Lease{}, false, errors.New("unsupported adoption target or missing Compose file")
 	}
 	var related []adapterpkg.ResourceRef
 	if d.VerifiesAdoption {
@@ -78,44 +95,66 @@ func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, error) {
 			}
 		}
 	} else if err := m.verifyDiscovered(ctx, s, d, r.Resource); err != nil {
-		return Lease{}, err
+		return Lease{}, false, err
 	}
 	r.Resource.Adopted = true
 	l.ResourceRef, err = d.Prepare(ctx, adapterpkg.PrepareRequest{Metadata: target(l).Metadata, SnapshotDir: filepath.Join(s.dir, "resources", l.ID), File: r.File, Existing: r.Resource, Leased: related, ExcludeRemotes: r.ExcludeRemotes})
 	if err != nil {
-		return Lease{}, err
+		return Lease{}, false, err
 	}
-	l.Labels = map[string]string{"io.dibs.lease": l.ID, "io.dibs.owner": l.Owner.String(), "io.dibs.expires": l.Expires.Format(time.RFC3339Nano), "io.dibs.machine": l.Machine}
-	s.Version = stateVersion
+	l.Labels = attribution(l)
+	if s.Version < 2 {
+		s.Version = 2
+	}
+
 	s.Leases[l.ID] = l
 	if err := s.Save(); err != nil {
-		return Lease{}, err
+		return Lease{}, false, err
 	}
-	return detached(l), nil
+	return detached(l), false, nil
 }
 
-// verifyDiscovered requires an unleased Docker resource that discovery finds by name.
+// sameAdopted matches a keyed adoption retry: a pooled worktree by slot path and
+// allocator token, any other resource by name.
+func sameAdopted(recorded, requested adapterpkg.ResourceRef) bool {
+	if requested.Path != "" {
+		return recorded.Path == requested.Path && recorded.Claim == requested.Claim
+	}
+	return recorded.Name == requested.Name
+}
+
+// verifyDiscovered requires an unleased resource that discovery finds by name.
 func (m *Manager) verifyDiscovered(ctx context.Context, s *store, d adapterpkg.Definition, r adapterpkg.ResourceRef) error {
 	if !adapterpkg.ValidResourceName(r.Name) {
 		return errors.New("unsupported adoption target or missing Compose file")
 	}
-	leased, err := resourceLeased(ctx, s, r, adapterpkg.RunCommand)
-	if err != nil {
+	leased := refuse("already_leased", "resource is already under a lease; inspect dibs ps")
+	if other, err := claimant(ctx, s, r, nil, "", adapterpkg.RunCommand); err != nil {
 		return err
-	}
-	if leased {
-		return errors.New("resource is already under a lease; inspect dibs ps")
+	} else if other != "" {
+		return leased
 	}
 	rows, err := d.Discover(ctx, r)
 	if err != nil {
 		return err
 	}
+	found := false
 	for _, row := range rows {
-		if row["name"] == r.Name {
-			return nil
+		if row["name"] != r.Name {
+			continue
+		}
+		found = true
+		// A resource stamped for a pending lease belongs to that lease, not to a new one.
+		if other, err := claimant(ctx, s, r, rowLabels(row), "", adapterpkg.RunCommand); err != nil {
+			return err
+		} else if other != "" {
+			return leased
 		}
 	}
-	return errors.New("resource does not exist; adoption refused")
+	if !found {
+		return refuse("resource_absent", "resource does not exist; adoption refused")
+	}
+	return nil
 }
 func (m *Manager) Orphans(ctx context.Context, r adapterpkg.ResourceRef) ([]map[string]any, error) {
 	rows := []map[string]any{}
@@ -145,11 +184,11 @@ func (m *Manager) Orphans(ctx context.Context, r adapterpkg.ResourceRef) ([]map[
 	unleased := []map[string]any{}
 	for _, row := range rows {
 		r.Adapter, r.Name = row["type"].(string), row["name"].(string)
-		leased, err := resourceLeased(ctx, s, r, adapterpkg.RunCommand)
+		other, err := claimant(ctx, s, r, rowLabels(row), "", adapterpkg.RunCommand)
 		if err != nil {
 			return nil, err
 		}
-		if !leased {
+		if other == "" {
 			unleased = append(unleased, row)
 		}
 	}

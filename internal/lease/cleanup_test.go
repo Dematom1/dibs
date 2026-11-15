@@ -6,7 +6,6 @@ import (
 	"os"
 	"reflect"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -101,7 +100,7 @@ func TestCreateRecordsWhatCreationLearned(t *testing.T) {
 		return ref, nil
 	}}
 	m := scriptedManager(t, a, nil)
-	l, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+	l, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
 	if err != nil || l.ResourceRef.Claim != "tok-A" {
 		t.Fatalf("lease = %+v, %v", l, err)
 	}
@@ -117,7 +116,7 @@ func TestCreateFailureKeepsIntentAndLearnedIdentity(t *testing.T) {
 		return ref, errors.New("half created")
 	}}
 	m := scriptedManager(t, a, nil)
-	if _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"}); err == nil {
+	if _, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"}); err == nil {
 		t.Fatal("create succeeded")
 	}
 	if got, _ := stored(t, m, onlyID(t, m)); got.ResourceRef.Claim != "tok-A" {
@@ -132,7 +131,7 @@ func TestCreateRefusesInvalidLearnedIdentity(t *testing.T) {
 		return ref, nil
 	}}
 	m := scriptedManager(t, a, nil)
-	if _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"}); err == nil {
+	if _, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"}); err == nil {
 		t.Fatal("accepted an invalid identity")
 	}
 	if got, _ := stored(t, m, onlyID(t, m)); got.ResourceRef.Name != "" {
@@ -143,7 +142,7 @@ func TestCreateRefusesInvalidLearnedIdentity(t *testing.T) {
 func TestReleaseCleansUpOutsideLockAndForgetsAfter(t *testing.T) {
 	a := &scripted{}
 	m := scriptedManager(t, a, nil)
-	l, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+	l, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +173,7 @@ func TestOutsideLockCleanupBlocksExtendAndCanRetry(t *testing.T) {
 				return errors.New("temporary failure")
 			}}
 			m := scriptedManager(t, a, nil)
-			l, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+			l, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -202,7 +201,8 @@ func TestOutsideLockCleanupBlocksExtendAndCanRetry(t *testing.T) {
 				finished <- err
 			}()
 			<-started
-			if _, err := m.Extend(context.Background(), l.ID, time.Hour); err == nil || !strings.Contains(err.Error(), "cleanup is in progress") {
+			var refusal *RenewRefusal
+			if _, _, err := m.Extend(context.Background(), l.ID, time.Hour); !errors.As(err, &refusal) || refusal.Reason != CleanupInProgress {
 				t.Fatalf("extend during cleanup = %v", err)
 			}
 			close(proceed)
@@ -252,7 +252,7 @@ func TestReleaseOutsideLockRetainsOnFailureOrChange(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			a := &scripted{}
 			m := scriptedManager(t, a, nil)
-			l, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+			l, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -271,7 +271,7 @@ func TestReleaseOutsideLockRetainsOnFailureOrChange(t *testing.T) {
 func TestReleasePreviewNeverCleansUp(t *testing.T) {
 	a := &scripted{destroy: func(adapterpkg.Target) error { return errors.New("must not run") }}
 	m := scriptedManager(t, a, nil)
-	l, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+	l, _, err := m.Create(context.Background(), CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestSweepReclaimsOutsideLockWithoutDiscarding(t *testing.T) {
 	owner := liveOwner(t)
 	var ids []string
 	for _, adapter := range []string{"slow", "slow", "none"} {
-		l, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: adapter})
+		l, _, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: adapter})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -347,20 +347,90 @@ func TestAdoptionVerifiedByAdapterSeesRelatedLeases(t *testing.T) {
 		return adapterpkg.ResourceRef{Adapter: "slow", Adopted: true, Path: r.Existing.Path, ExcludeRemotes: r.ExcludeRemotes}, nil
 	})
 	owner := liveOwner(t)
-	if _, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: "slow"}); err != nil {
+	if _, _, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: "slow"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: "none"}); err != nil {
+	if _, _, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: "none"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Adopt(context.Background(), AdoptRequest{Owner: owner, TTL: time.Hour, Resource: adapterpkg.ResourceRef{Adapter: "slow", Path: "/taken"}}); err == nil {
+	if _, _, err := m.Adopt(context.Background(), AdoptRequest{Owner: owner, TTL: time.Hour, Resource: adapterpkg.ResourceRef{Adapter: "slow", Path: "/taken"}}); err == nil {
 		t.Fatal("adapter refusal ignored")
 	}
-	l, err := m.Adopt(context.Background(), AdoptRequest{Owner: owner, TTL: time.Hour, Resource: adapterpkg.ResourceRef{Adapter: "slow", Path: "/slot"}, ExcludeRemotes: []string{"gate"}})
+	l, _, err := m.Adopt(context.Background(), AdoptRequest{Owner: owner, TTL: time.Hour, Resource: adapterpkg.ResourceRef{Adapter: "slow", Path: "/slot"}, ExcludeRemotes: []string{"gate"}})
 	if err != nil || !l.ResourceRef.Adopted || l.ResourceRef.ExcludeRemotes[0] != "gate" || l.Labels["io.dibs.lease"] != l.ID {
 		t.Fatalf("adopt = %+v, %v", l, err)
 	}
 	if len(seen) != 1 || seen[0].Path != "/created" {
 		t.Fatalf("related view = %+v", seen)
+	}
+}
+
+func TestReclaimCleansUpOutsideLockAndNeverDiscards(t *testing.T) {
+	ctx := context.Background()
+	a := &scripted{}
+	m := scriptedManager(t, a, nil)
+	owner := &fakeOwner{ownerpkg.Alive}
+	m.options.Owners = ownerpkg.NewRegistry(ownerpkg.Definition{Name: "fake",
+		Bind: func(context.Context, string, time.Duration, time.Time) (ownerpkg.Reference, error) {
+			return fakeRef, nil
+		},
+		Check: func(context.Context, ownerpkg.Reference, time.Time) ownerpkg.Observation {
+			return ownerpkg.Observation{Liveness: owner.live}
+		}})
+	l, _, err := m.Create(ctx, CreateRequest{Owner: fakeRef, TTL: time.Hour, Adapter: "slow"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.live = ownerpkg.Dead
+	refuse := true
+	a.destroy = func(target adapterpkg.Target) error {
+		if err := lockFree(t, m); err != nil {
+			t.Errorf("reclaim held the state lock during cleanup: %v", err)
+		}
+		if target.DiscardUnlanded {
+			t.Error("reclaim asked the adapter to discard unlanded work")
+		}
+		if refuse {
+			return errors.New("slot holds unlanded work")
+		}
+		return nil
+	}
+	if _, err := m.Reclaim(ctx, l.ID, true); err == nil {
+		t.Fatal("refused cleanup reported as reclaimed")
+	}
+	if got, ok := stored(t, m, l.ID); !ok || got.Releasing == nil {
+		t.Fatalf("refused reclaim lost the lease or its marker: %+v, %v", got, ok)
+	}
+	var refusal *RenewRefusal
+	if _, _, err := m.Extend(ctx, l.ID, time.Hour); !errors.As(err, &refusal) || refusal.Reason != CleanupInProgress {
+		t.Fatalf("extend after interrupted cleanup = %v", err)
+	}
+	refuse = false
+	if r, err := m.Reclaim(ctx, l.ID, true); err != nil || r.Status != "reclaimed" {
+		t.Fatalf("retried reclaim = %+v, %v", r, err)
+	}
+	if _, ok := stored(t, m, l.ID); ok {
+		t.Fatal("reclaimed lease still recorded")
+	}
+}
+
+func TestKeyedAdoptionMatchesSlotPathAndToken(t *testing.T) {
+	ctx := context.Background()
+	m := scriptedManager(t, &scripted{}, func(r adapterpkg.PrepareRequest) (adapterpkg.ResourceRef, error) {
+		return adapterpkg.ResourceRef{Adapter: "slow", Adopted: true, Name: "slot-3", Path: r.Existing.Path, Claim: r.Existing.Claim}, nil
+	})
+	owner := liveOwner(t)
+	request := func(claim string) AdoptRequest {
+		return AdoptRequest{Owner: owner, TTL: time.Hour, Key: "task-7:worktree", Resource: adapterpkg.ResourceRef{Adapter: "slow", Path: "/slot", Claim: claim}}
+	}
+	first, done, err := m.Adopt(ctx, request("tok-A"))
+	if err != nil || done {
+		t.Fatalf("adopt = %v, %v", done, err)
+	}
+	if again, done, err := m.Adopt(ctx, request("tok-A")); err != nil || !done || again.ID != first.ID {
+		t.Fatalf("keyed retry = %+v, %v, %v", again, done, err)
+	}
+	if _, _, err := m.Adopt(ctx, request("tok-B")); reason(err) != "key_conflict" {
+		t.Fatalf("same key for another token = %v", err)
 	}
 }

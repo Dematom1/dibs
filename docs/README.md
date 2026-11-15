@@ -16,6 +16,7 @@ All production code lives under `internal/`. `main.go` holds only the entry poin
 | --- | --- | --- | --- |
 | Leases, owner liveness, reclaim | [leases.md](leases.md) | `internal/lease/lease.go`, `internal/lease/manager.go`, `internal/owner/reference.go`, `internal/owner/registry.go` | `internal/lease/lease_test.go`, `internal/owner/reference_test.go`, `internal/cli/cli_test.go`, `internal/lease/formal_test.go` |
 | State store and format | [state.md](state.md) | `internal/lease/store.go`, `internal/lease/machine.go`, `internal/atomicfile/write.go` | `internal/lease/lease_test.go`, `internal/lease/machine_migration_test.go`, `internal/lease/compat_test.go`, `internal/atomicfile/write_test.go` |
+| Consumer contract, pending leases, reclaim, explain | [consumer-contract.md](consumer-contract.md) | `internal/lease/pending.go`, `internal/cli/contract.go` | `internal/lease/pending_test.go`, `internal/cli/contract_test.go`, `internal/cli/pending_integration_test.go` |
 | Adapters, adoption, orphans | [adapters.md](adapters.md) | `internal/adapter/`, `internal/adapter/{none,kind,k3d,compose}/`, `internal/lease/inventory.go` | `internal/adapter/adapter_test.go`, `internal/lease/inventory_test.go`, `internal/cli/integration_test.go` |
 | Jobs, admission, budgets, deadlines | [jobs.md](jobs.md) | `internal/job/command.go`, `internal/lease/job_*.go`, `internal/lease/job_wait_{darwin,linux}.go` | `internal/lease/job_test.go`, `internal/lease/formal_test.go` |
 | Remote jobs over SSH | [remote.md](remote.md) | `internal/remote/`, `internal/cli/agent.go`, `internal/cli/machine.go` | `internal/remote/ssh_test.go`, `internal/remote/protocol_test.go`, `internal/remote/ssh_integration_test.go`, `internal/cli/ssh_test.go` |
@@ -26,12 +27,13 @@ All production code lives under `internal/`. `main.go` holds only the entry poin
 
 ## Rules that span components
 
-- **Never reclaim a live, unexpired owner.** Reclaim requires a dead owner or an expired lease. `unknown` liveness is never dead. See [Leases](leases.md#reclaim-rule).
+- **Never reclaim a live, unexpired owner.** Reclaim requires a dead owner or an expired lease. `unknown` liveness is never dead. A lease with live-owner protection is reclaimed only on proven owner death. See [Leases](leases.md#reclaim-rule).
 - **A record is removed only after verify-gone.** Every `Destroy` verifies that the resource is gone before dibs deletes the lease, and a failure keeps the lease for retry. The process group has one documented exception. See [Adapters](adapters.md#contract) and [Jobs](jobs.md#process-group-cleanup).
 - **Cleanup intent is durable first.** dibs saves the lease before it creates the resource. See [Leases](leases.md#create).
 - **A host acts only on its own leases.** The machine is a stable OS identity, not a hostname. See [State](state.md#machine-identity).
 - **AXI output is byte-stable, and JSON is complete.** See [Output modes](output.md#invariants).
 - **Exit codes 124, 75, and 76 are a contract.** See [CLI](cli.md#exit-codes).
+- **Exit 3 changes nothing.** A contract refusal carries a stable `reason` and returns before any state write. See [Consumer contract](consumer-contract.md#exit-codes).
 
 ## Intentional berth compatibility
 

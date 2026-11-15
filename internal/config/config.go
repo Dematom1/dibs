@@ -16,6 +16,7 @@ import (
 
 	budgetpkg "github.com/Dematom1/dibs/internal/budget"
 	"github.com/Dematom1/dibs/internal/compat"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 const gib = int64(1 << 30)
@@ -34,7 +35,18 @@ type Config struct {
 	Classes    map[string]Class  `json:"classes"`
 	Machines   map[string]Target `json:"machines"`
 	PROwner    bool              `json:"pr_owner"`
-	// TreehouseWorktree enables the treehouse-worktree resource adapter.
+	// LiveOwnerProtection allows create and adopt to accept --protect-live-owner.
+	LiveOwnerProtection bool `json:"live_owner_protection"`
+	// ConsumerContract turns on the versioned consumer contract (docs/consumer-contract.md).
+	ConsumerContract bool `json:"consumer_contract"`
+	// ExecOwner registers the exec owner kind.
+	ExecOwner bool `json:"exec_owner"`
+	// ShellAdapter allows dibs adopt shell.
+	ShellAdapter bool `json:"shell_adapter"`
+	// LeasePolicies turns on the lease policy table; Policies overrides its rows.
+	LeasePolicies bool                     `json:"lease_policies"`
+	Policies      map[string]policypkg.Row `json:"policies"`
+	// TreehouseWorktree allows new treehouse-worktree leases.
 	TreehouseWorktree bool `json:"treehouse_worktree_adapter"`
 }
 
@@ -162,16 +174,70 @@ func read() ([]byte, bool, error) {
 	return data, err == nil, err
 }
 
-// PROwner reports the pr_owner opt-in without probing host memory; a missing or unreadable config leaves it off.
-func PROwner() bool { return optIn("pr_owner") }
+type optIns struct {
+	PROwner             bool `json:"pr_owner"`
+	LiveOwnerProtection bool `json:"live_owner_protection"`
+	ConsumerContract    bool `json:"consumer_contract"`
+	ExecOwner           bool `json:"exec_owner"`
+	ShellAdapter        bool `json:"shell_adapter"`
+	LeasePolicies       bool `json:"lease_policies"`
+	TreehouseWorktree   bool `json:"treehouse_worktree_adapter"`
+}
 
-// TreehouseWorktree reports the treehouse_worktree_adapter opt-in the same way.
-func TreehouseWorktree() bool { return optIn("treehouse_worktree_adapter") }
-
-func optIn(key string) bool {
+// readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
+func readOptIns() optIns {
 	data, found, err := read()
-	var c map[string]any
-	return err == nil && found && json.Unmarshal(data, &c) == nil && c[key] == true
+	var c optIns
+	if err != nil || !found || json.Unmarshal(data, &c) != nil {
+		return optIns{}
+	}
+	return c
+}
+
+// PROwner reports the pr_owner opt-in.
+func PROwner() bool { return readOptIns().PROwner }
+
+// LiveOwnerProtection reports the live_owner_protection opt-in.
+func LiveOwnerProtection() bool { return readOptIns().LiveOwnerProtection }
+
+// ConsumerContract reports the consumer_contract opt-in.
+func ConsumerContract() bool { return readOptIns().ConsumerContract }
+
+// ExecOwner reports the exec_owner opt-in.
+func ExecOwner() bool { return readOptIns().ExecOwner }
+
+// ShellAdapter reports the shell_adapter opt-in.
+func ShellAdapter() bool { return readOptIns().ShellAdapter }
+
+// LeasePolicies reports the lease_policies opt-in.
+func LeasePolicies() bool { return readOptIns().LeasePolicies }
+
+// TreehouseWorktree reports the treehouse_worktree_adapter opt-in.
+func TreehouseWorktree() bool { return readOptIns().TreehouseWorktree }
+
+// Policies strictly reads the configured policy rows without probing the host,
+// so a malformed table is an error rather than a silent default.
+func Policies() (map[string]policypkg.Row, error) {
+	data, found, err := read()
+	if err != nil || !found {
+		return nil, err
+	}
+	if trimmed := bytes.TrimSpace(data); len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, errors.New("invalid config: the file must contain exactly one JSON object")
+	}
+	var c Config
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&c); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			err = errors.New("multiple JSON values")
+		}
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+	return c.Policies, nil
 }
 
 // SSH config aliases may supply proxying, keys, and host-key policy. Dibs never

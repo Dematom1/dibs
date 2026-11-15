@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -40,14 +41,41 @@ func humanValue(key string, value any, now time.Time) string {
 	if key == "age" {
 		return fmt.Sprint(value) + " ago"
 	}
+	if labels, ok := value.(map[string]string); ok {
+		if len(labels) == 0 {
+			return "-"
+		}
+		pairs := make([]string, 0, len(labels))
+		for label, text := range labels {
+			pairs = append(pairs, label+"="+text)
+		}
+		sort.Strings(pairs)
+		return humanText(strings.Join(pairs, ", "))
+	}
+	if object, ok := value.(map[string]any); ok {
+		pairs := []string{}
+		for _, field := range keys(object) {
+			if text := humanValue(field, object[field], now); text != "-" {
+				pairs = append(pairs, field+"="+text)
+			}
+		}
+		return humanText(strings.Join(pairs, ", "))
+	}
+	if items, ok := value.([]string); ok {
+		return humanText(strings.Join(items, ", "))
+	}
 	return humanText(fmt.Sprint(value))
 }
 
 func humanObject(w io.Writer, value map[string]any, now time.Time) {
 	for _, key := range keys(value) {
 		switch key {
-		case "records", "record", "count", "memory_bytes", "help", "code", "exit_code":
+		case "records", "record", "count", "memory_bytes", "help", "code", "exit_code", "contract":
 			continue
+		case "protect_live_owner":
+			if value[key] == true {
+				fmt.Fprintln(w, "protected: only proven owner death reclaims this lease")
+			}
 		case "budget":
 			fmt.Fprintln(w, value[key].(map[string]any)["summary"])
 		case "evidence":
@@ -82,12 +110,46 @@ func humanObject(w io.Writer, value map[string]any, now time.Time) {
 				cells := make([]string, len(fields))
 				for i, field := range fields {
 					cells[i] = humanValue(field, row[field], now)
+					if field == "liveness" && row["protect_live_owner"] == true {
+						cells[i] += ", protected"
+					}
+				}
+				if row["pending"] == true {
+					cells[6] += " (pending)"
 				}
 				fmt.Fprintln(table, strings.Join(cells, "\t"))
 			}
 			table.Flush()
 		case "lease":
 			humanObject(w, value[key].(map[string]any), now)
+		case "results":
+			rows := value[key].([]map[string]any)
+			if len(rows) == 0 {
+				fmt.Fprintln(w, "No pending leases.")
+			}
+			table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+			if len(rows) > 0 {
+				fmt.Fprintln(table, "ID\tSTATUS\tRESOURCE\tMATCHES\tCONFLICTS")
+			}
+			for _, row := range rows {
+				resource := fmt.Sprint(row["resource_adapter"])
+				if name := fmt.Sprint(row["resource_name"]); name != "" {
+					resource += ":" + name
+				}
+				list := func(field string) string {
+					items, _ := row[field].([]string)
+					if len(items) == 0 {
+						return "-"
+					}
+					return strings.Join(items, ", ")
+				}
+				cells := []string{fmt.Sprint(row["id"]), fmt.Sprint(row["status"]), resource, list("matches"), list("conflicts")}
+				for i, cell := range cells {
+					cells[i] = humanText(cell)
+				}
+				fmt.Fprintln(table, strings.Join(cells, "\t"))
+			}
+			table.Flush()
 		default:
 			if items, ok := value[key].([]string); ok {
 				text := "none"

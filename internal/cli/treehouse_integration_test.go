@@ -290,6 +290,47 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 		}
 	})
 
+	t.Run("a protected slot reattaches while held and is reclaimed only after proven death", func(t *testing.T) {
+		enableProtection(t)
+		t.Setenv("DIBS_CONSUMER_CONTRACT", "1")
+		worker := liveProcess(t)
+		id, path := lab.acquire("pid:"+strconv.Itoa(worker.Process.Pid), "--protect-live-owner", "--ttl", "1s")
+		l, _, err := testApplication().leases.Get(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Until(l.Expires) + 100*time.Millisecond)
+		if r := invoke(t, 0, "sweep", "--confirm"); len(r["reclaimed"].([]any)) != 0 {
+			t.Fatalf("sweep reclaimed a live owner's protected slot: %+v", r)
+		}
+		if r := invoke(t, 0, "extend", id, "--ttl", "1h"); r["status"] != "reattached" {
+			t.Fatalf("late renew of a held slot: %+v", r)
+		}
+		if r := invoke(t, 3, "reclaim", id, "--confirm"); r["reason"] != "owner_alive" {
+			t.Fatalf("reclaim with a live owner: %+v", r)
+		}
+		if err := os.WriteFile(filepath.Join(path, "draft.txt"), []byte("work\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		worker.Process.Kill()
+		worker.Wait()
+		if r := invoke(t, 3, "reclaim", id, "--confirm"); r["reason"] != "unlanded_work" || r["blockers"].(map[string]any)["uncommitted_count"] != float64(1) {
+			t.Fatalf("reclaim of unlanded work: %+v", r)
+		}
+		if s := lab.slot(path); s.Status != "leased" {
+			t.Fatalf("refused reclaim returned the slot: %+v", s)
+		}
+		if err := os.Remove(filepath.Join(path, "draft.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if r := invoke(t, 0, "reclaim", id, "--confirm"); r["status"] != "reclaimed" {
+			t.Fatalf("reclaim after the work was cleared: %+v", r)
+		}
+		if s := lab.slot(path); s.Status != "available" {
+			t.Fatalf("reclaimed slot not returned: %+v", s)
+		}
+	})
+
 	t.Run("concurrent returns do not stall other leases' renewals", func(t *testing.T) {
 		var ids []string
 		for range 12 {
