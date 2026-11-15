@@ -76,8 +76,8 @@ func (w worktree) slots(ctx context.Context, ref adapterpkg.ResourceRef) ([]slot
 		if json.Unmarshal(entry, &fields) != nil || fields == nil ||
 			json.Unmarshal(fields["path"], &s.Path) != nil || s.Path == "" ||
 			json.Unmarshal(fields["status"], &s.Status) != nil || s.Status == "" ||
-			json.Unmarshal(fields["lease_id"], &s.LeaseID) != nil ||
-			json.Unmarshal(fields["lease_holder"], &s.LeaseHolder) != nil ||
+			len(fields["lease_id"]) == 0 || fields["lease_id"][0] != '"' || json.Unmarshal(fields["lease_id"], &s.LeaseID) != nil ||
+			len(fields["lease_holder"]) == 0 || fields["lease_holder"][0] != '"' || json.Unmarshal(fields["lease_holder"], &s.LeaseHolder) != nil ||
 			len(fields["processes"]) == 0 || fields["processes"][0] != '[' ||
 			json.Unmarshal(fields["processes"], &s.Processes) != nil {
 			return nil, errors.New("cannot read treehouse status --json; lease retained")

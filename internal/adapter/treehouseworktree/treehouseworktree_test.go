@@ -175,6 +175,10 @@ func TestDestroyRejectsNullOrMalformedStatus(t *testing.T) {
 		"null":                    "null",
 		"entry missing path":      `[{"status":"available","lease_id":"","lease_holder":"","processes":[]}]`,
 		"entry missing processes": `[{"path":"` + slotPath + `","status":"leased","lease_id":"tok-A","lease_holder":"dibs:` + leaseID + `"}]`,
+		"null lease id":           `[{"path":"` + slotPath + `","status":"leased","lease_id":null,"lease_holder":"dibs:` + leaseID + `","processes":[]}]`,
+		"null lease holder":       `[{"path":"` + slotPath + `","status":"leased","lease_id":"tok-A","lease_holder":null,"processes":[]}]`,
+		"non-string lease id":     `[{"path":"` + slotPath + `","status":"leased","lease_id":1,"lease_holder":"","processes":[]}]`,
+		"non-string lease holder": `[{"path":"` + slotPath + `","status":"leased","lease_id":"","lease_holder":1,"processes":[]}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := &fake{answers: map[string][]reply{statusCall: {{out: response}}}}
