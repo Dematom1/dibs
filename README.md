@@ -397,9 +397,10 @@ exits 3. A blocked sweep lists the same reason under `failures`. Pass `--landed-
 `create` or `adopt` for remotes whose refs do not count as landed, such as a
 local validation mirror. The lease records the list, so sweep applies the same
 policy later. Only an explicit `dibs release <id> --confirm --discard-unlanded`
-returns a slot that holds unlanded work, with `treehouse return --force`. Use it
-only after you prove that the work landed some other way, such as a
-squash-merged pull request. Sweep never discards work.
+returns a slot that holds unlanded work, with `treehouse return --force`. It
+skips only the unlanded-work check; it never terminates processes in the slot.
+Stop them first. Use it only after you prove that the work landed some other
+way, such as a squash-merged pull request. Sweep never discards work.
 
 Verify-gone means the claim is gone: no slot carries the token (or the pending
 holder), and the pinned slot is either listed without it or deleted. The slot

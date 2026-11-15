@@ -263,19 +263,51 @@ func TestDestroyRefusesUnlandedWork(t *testing.T) {
 	}
 }
 
-func TestDestroyDiscardOverrideForcesReturn(t *testing.T) {
-	f := &fake{answers: map[string][]reply{
-		statusCall: {
-			{out: status(t, slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID), Processes: []process{{Name: "writer", PID: 42}}})},
-			{out: status(t, slot{Name: "3", Path: slotPath, Status: "available"})},
-		},
-		"treehouse return " + slotPath + " --if-lease-id tok-A --if-lease-holder dibs:" + leaseID + " --force": {{out: ""}},
-	}}
+func TestDestroyDiscardOverrideSkipsOnlyUnlandedProof(t *testing.T) {
+	leased := slot{Name: "3", Path: slotPath, Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)}
 	ref := target(slotPath, "tok-A")
 	ref.DiscardUnlanded = true
-	if err := (worktree{f.run}).Destroy(context.Background(), ref); err != nil {
-		t.Fatal(err)
+	t.Run("quiet dirty slot returns forcibly", func(t *testing.T) {
+		answers := map[string][]reply{
+			statusCall: {
+				{out: status(t, leased)},
+				{out: status(t, leased)},
+				{out: status(t, slot{Name: "3", Path: slotPath, Status: "available"})},
+			},
+			"treehouse return " + slotPath + " --if-lease-id tok-A --if-lease-holder dibs:" + leaseID + " --force": {{out: ""}},
+		}
+		f := &fake{answers: answers}
+		if err := (worktree{f.run}).Destroy(context.Background(), ref); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for name, statuses := range map[string][]slot{
+		"initial process":        {appendProcess(leased)},
+		"process at final check": {leased, appendProcess(leased)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			answers := make([]reply, len(statuses))
+			for i, s := range statuses {
+				answers[i] = reply{out: status(t, s)}
+			}
+			f := &fake{answers: map[string][]reply{statusCall: answers}}
+			var blocker *adapterpkg.UnlandedError
+			err := (worktree{f.run}).Destroy(context.Background(), ref)
+			if !errors.As(err, &blocker) || len(blocker.Processes) != 1 || blocker.Processes[0].PID != 42 {
+				t.Fatalf("err = %v", err)
+			}
+			for _, call := range f.calls {
+				if strings.HasPrefix(call, "treehouse return") {
+					t.Fatalf("returned with active process: %q", f.calls)
+				}
+			}
+		})
 	}
+}
+
+func appendProcess(s slot) slot {
+	s.Processes = []process{{Name: "writer", PID: 42}}
+	return s
 }
 
 func TestDestroyRefusesActiveProcessesAndMovingHead(t *testing.T) {

@@ -263,9 +263,9 @@ leases a treehouse pool slot (lease.path) and returns it only after its work
 landed on a remote; unlanded work keeps the lease.
   dibs create --adapter treehouse-worktree --repo ~/src/app --ttl 8h`,
 	"release": `[--discard-unlanded] with --confirm discards uncommitted or unpushed work in
-a treehouse-worktree slot; without it such a release exits 1 listing blockers
-(exit 3, reason unlanded_work, with the consumer contract on). Sweep and reclaim
-never discard.`,
+a treehouse-worktree slot. It never terminates running processes; stop them first.
+Without it, unlanded work blocks release (exit 3, reason unlanded_work, with the
+consumer contract on). Sweep and reclaim never discard.`,
 	"extend": `A treehouse-worktree lease whose cleanup started is refused until release
 finishes it (cleanup_in_progress; exit 3 with the consumer contract on).`,
 }

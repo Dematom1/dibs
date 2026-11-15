@@ -130,23 +130,28 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	if !held {
 		return gone(slots, t.Ref)
 	}
+	if len(s.Processes) != 0 {
+		return processBlocker(s.Processes)
+	}
 	var checkedHead string
 	if !t.DiscardUnlanded {
-		if len(s.Processes) != 0 {
-			return processBlocker(s.Processes)
-		}
 		checkedHead, err = w.landed(ctx, s.Path, t.Ref.ExcludeRemotes)
 		if err != nil {
 			return err
 		}
-		latest, err := w.slots(ctx, t.Ref)
-		if err != nil {
-			return err
+	}
+	latest, err := w.slots(ctx, t.Ref)
+	if err != nil {
+		return err
+	}
+	current, held := claimed(latest, t.Ref)
+	if !held || current.LeaseID != s.LeaseID || filepath.Clean(current.Path) != filepath.Clean(s.Path) || len(current.Processes) != 0 {
+		if held && len(current.Processes) != 0 {
+			return processBlocker(current.Processes)
 		}
-		current, held := claimed(latest, t.Ref)
-		if !held || current.LeaseID != s.LeaseID || filepath.Clean(current.Path) != filepath.Clean(s.Path) || len(current.Processes) != 0 {
-			return errors.New("worktree claim or process set changed during cleanup; lease retained")
-		}
+		return errors.New("worktree claim or process set changed during cleanup; lease retained")
+	}
+	if !t.DiscardUnlanded {
 		head, err := w.head(ctx, current.Path)
 		if err != nil {
 			return err
@@ -154,8 +159,8 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 		if head != checkedHead {
 			return errors.New("worktree HEAD changed during cleanup; lease retained")
 		}
-		s = current
 	}
+	s = current
 	// Conditional on the exact claim, so a stale lease never resets a slot reassigned since.
 	args := []string{"return", s.Path, "--if-lease-id", s.LeaseID}
 	if t.Ref.Holder != "" {
