@@ -265,6 +265,16 @@ been handed to someone else since. Before return, dibs requires detected slot
 processes to exit and refuses unlanded work, keeping the lease. Treehouse detects
 processes by cwd inside the slot, so processes whose cwd is elsewhere are not
 covered. Dibs rechecks the claim, process list, and HEAD immediately before return.
+Callers should stop their writers before release. Sweep only acts on dead-owner
+or expired leases.
+
+There is a narrow limit: dibs's final check and `treehouse return` are separate
+processes. A process that starts in the slot and creates a commit between them
+can have that commit reset away. A commit on a named branch remains reachable in
+the shared repository; a detached-HEAD commit is reachable only from the reflog.
+Uncommitted edits in that interval are still caught because return without
+`--force` refuses a dirty tree. Full closure needs an atomic return-if-clean in
+treehouse; see [treehouse issue 216](https://github.com/kunchenguid/treehouse/issues/216).
 
 - uncommitted changes, including untracked files
   (`git status --porcelain --untracked-files=all`)

@@ -145,6 +145,7 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	if t.DiscardUnlanded {
 		args = append(args, "--force")
 	}
+	// Final verification and return are separate processes; see treehouse issue 216 for atomic return-if-clean.
 	if _, err := w.treehouse(ctx, t.Ref, args...); err != nil {
 		var failed adapterpkg.CommandError
 		if errors.As(err, &failed) && failed.Code == notReturned {

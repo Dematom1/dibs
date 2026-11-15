@@ -122,11 +122,26 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 	for i, raw := range steps {
 		step := object(raw)
 		run, _ := step["run"].(string)
-		if strings.Contains(run, "go install github.com/kunchenguid/treehouse/v3@v3.1.5") &&
-			strings.Contains(run, `echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"`) {
+		var commands []string
+		for _, line := range strings.Split(run, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				commands = append(commands, line)
+			}
+		}
+		install, path := -1, -1
+		for j, command := range commands {
+			if command == "go install github.com/kunchenguid/treehouse/v3@v3.1.5" {
+				install = j
+			}
+			if command == `echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"` {
+				path = j
+			}
+		}
+		if install >= 0 && path > install {
 			treehouseInstall = i
 		}
-		if strings.TrimSpace(run) == "just integration" {
+		if run == "just integration" {
 			integrationRun = i
 		}
 	}
