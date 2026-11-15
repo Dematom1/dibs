@@ -338,6 +338,15 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		}
 	case "create":
 		request := leasepkg.CreateRequest{Owner: newOwner, TTL: ttl, Description: resources, Labels: labels, Adapter: driver, File: file, Key: key, Pending: pending, Name: name, ProtectLiveOwner: protect, Policy: leasePolicy, Repo: repo, ExcludeRemotes: excluded}
+		if key != "" && !pending {
+			if definition, ok := app.resources.Lookup(driver); ok && definition.ResolveRepo != nil {
+				resolved, resolveErr := definition.ResolveRepo(ctx, repo)
+				if resolveErr != nil {
+					return outputpkg.Error(out, jsonOutput, 2, resolveErr.Error(), help(command))
+				}
+				request.Repo = resolved
+			}
+		}
 		if d, _ := app.resources.Lookup(driver); key != "" && !pending && driver != "none" && !d.HostScoped {
 			// A keyed retry must match the Docker scope it was first made in; an unreachable
 			// engine still lets the retry find its lease, but never creates a new one.

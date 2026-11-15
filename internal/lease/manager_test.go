@@ -12,24 +12,6 @@ import (
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
 )
 
-func TestSameWorktreeRequestIncludesRepositoryAndExclusions(t *testing.T) {
-	repo := filepath.Join(t.TempDir(), "repo")
-	resolved, err := filepath.Abs(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := adapterpkg.ResourceRef{Repo: resolved, ExcludeRemotes: []string{"mirror"}}
-	if !sameWorktreeRequest(ref, repo, []string{"mirror"}) {
-		t.Fatal("identical worktree request did not match")
-	}
-	if sameWorktreeRequest(ref, filepath.Join(t.TempDir(), "other-repo"), []string{"mirror"}) {
-		t.Fatal("different repository matched")
-	}
-	if sameWorktreeRequest(ref, repo, []string{"other-mirror"}) {
-		t.Fatal("different exclusion list matched")
-	}
-}
-
 func TestManagerListingAccountsForHiddenLocalReservations(t *testing.T) {
 	dir := t.TempDir()
 	m := testManager()

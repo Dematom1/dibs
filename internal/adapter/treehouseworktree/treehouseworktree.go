@@ -339,6 +339,7 @@ func validate(_ string, metadata adapterpkg.Metadata, ref adapterpkg.ResourceRef
 func New(run adapterpkg.DirRunner, enabled bool) adapterpkg.Definition {
 	w := worktree{run}
 	return adapterpkg.Definition{Name: Name, Adapter: w, CreateAllowed: enabled, VerifiesAdoption: enabled, CleanupOutsideLock: true, OptIn: OptIn, HostScoped: true, Exists: w.exists,
+		ResolveRepo: func(ctx context.Context, repo string) (string, error) { return mainCheckout(ctx, repo, run) },
 		Prepare: func(ctx context.Context, r adapterpkg.PrepareRequest) (adapterpkg.ResourceRef, error) {
 			return prepare(ctx, r, run)
 		},

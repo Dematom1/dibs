@@ -111,6 +111,7 @@ type Definition struct {
 	// for slow cleanup that is conditional and idempotent.
 	CleanupOutsideLock bool
 	Prepare            func(context.Context, PrepareRequest) (ResourceRef, error)
+	ResolveRepo        func(context.Context, string) (string, error)
 	Validate           func(string, Metadata, ResourceRef) error
 	Env                func(ResourceRef) Environment
 	// Exists reports whether the pinned resource is present; an error means unknown.

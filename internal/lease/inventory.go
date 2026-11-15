@@ -9,6 +9,7 @@ import (
 	policypkg "github.com/Dematom1/dibs/internal/policy"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -63,7 +64,7 @@ func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, bool, error
 	}
 	if l, done, err := keyed(s, host, r.Key, func(l Lease) bool {
 		ref := l.ResourceRef
-		return l.KeyedBy == "adopt" && sameOwner(l.Owner, r.Owner) && l.ProtectLiveOwner == r.ProtectLiveOwner && ref.Adapter == r.Resource.Adapter && sameAdopted(ref, r.Resource) && ref.DockerHost == r.Resource.DockerHost && (r.Resource.Adapter != "treehouse-worktree" || sameWorktreeExclusions(ref, r.ExcludeRemotes)) && (r.Resource.Adapter != "compose" || l.PendingFile == r.File)
+		return l.KeyedBy == "adopt" && sameOwner(l.Owner, r.Owner) && l.ProtectLiveOwner == r.ProtectLiveOwner && ref.Adapter == r.Resource.Adapter && sameAdopted(ref, r.Resource) && ref.DockerHost == r.Resource.DockerHost && (ref.Repo == "" || slices.Equal(ref.ExcludeRemotes, r.ExcludeRemotes)) && (r.Resource.Adapter != "compose" || l.PendingFile == r.File)
 	}); done || err != nil {
 		return l, done, err
 	}

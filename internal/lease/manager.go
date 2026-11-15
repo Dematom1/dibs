@@ -88,15 +88,6 @@ func detached(l Lease) Lease {
 	return l
 }
 
-func sameWorktreeExclusions(ref adapterpkg.ResourceRef, exclude []string) bool {
-	return slices.Equal(ref.ExcludeRemotes, exclude)
-}
-
-func sameWorktreeRequest(ref adapterpkg.ResourceRef, repo string, exclude []string) bool {
-	resolved, err := filepath.Abs(repo)
-	return err == nil && filepath.Clean(resolved) == ref.Repo && sameWorktreeExclusions(ref, exclude)
-}
-
 type CreateRequest struct {
 	Owner       ownerpkg.Reference
 	TTL         time.Duration
@@ -139,7 +130,7 @@ func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, bool, err
 		if !sameOwner(l.Owner, r.Owner) || l.ProtectLiveOwner != r.ProtectLiveOwner || ref.Adapter != r.Adapter || l.KeyedBy != createMode(r.Pending) || (r.Name != "" && ref.Name != r.Name) {
 			return false
 		}
-		if r.Adapter == "treehouse-worktree" && !sameWorktreeRequest(ref, r.Repo, r.ExcludeRemotes) {
+		if ref.Repo != "" && (r.Repo != ref.Repo || !slices.Equal(r.ExcludeRemotes, ref.ExcludeRemotes)) {
 			return false
 		}
 		if r.ScopeUnavailable == nil && r.Scope.Context != "" {

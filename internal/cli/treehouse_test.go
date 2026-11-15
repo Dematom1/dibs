@@ -32,6 +32,9 @@ func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, arg
 	call := strings.Join(append([]string{name}, args...), " ")
 	switch {
 	case strings.Contains(call, "rev-parse --path-format=absolute --git-common-dir"):
+		if strings.Contains(call, "-C /work/other") {
+			return []byte("/work/other/.git\n"), nil
+		}
 		return []byte(p.repo + "/.git\n"), nil
 	case strings.HasSuffix(call, "rev-parse HEAD"):
 		return []byte("head-A\n"), nil
@@ -74,6 +77,7 @@ func drive(t *testing.T, app application, mode outputpkg.Mode, want int, args ..
 }
 
 func TestTreehouseWorktreeOutputModes(t *testing.T) {
+	t.Setenv("DIBS_CONSUMER_CONTRACT", "1")
 	t.Setenv("DIBS_STATE", t.TempDir())
 	t.Setenv("TREEHOUSE_ROOT", "")
 	fixedBudget(t)
@@ -82,12 +86,27 @@ func TestTreehouseWorktreeOutputModes(t *testing.T) {
 	owner := "pid:" + strconv.Itoa(os.Getpid())
 
 	var created map[string]any
-	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app/sub", "--owner", owner, "--ttl", "1h", "--landed-exclude-remote", "gate")), &created); err != nil {
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app/sub", "--owner", owner, "--ttl", "1h", "--landed-exclude-remote", "gate", "--key", "worktree-key")), &created); err != nil {
 		t.Fatal(err)
 	}
 	lease, record := created["lease"].(map[string]any), created["record"].(map[string]any)
 	resource := record["resource"].(map[string]any)
 	id := lease["id"].(string)
+	var retry map[string]any
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app/sub", "--owner", owner, "--ttl", "1h", "--landed-exclude-remote", "gate", "--key", "worktree-key")), &retry); err != nil || retry["status"] != "already_done" || retry["lease"].(map[string]any)["id"] != id {
+		t.Fatalf("same keyed retry = %v, %v", retry, err)
+	}
+	for name, args := range map[string][]string{
+		"different repository": {"create", "--adapter", treehousepkg.Name, "--repo", "/work/other", "--owner", owner, "--ttl", "1h", "--landed-exclude-remote", "gate", "--key", "worktree-key"},
+		"different exclusions": {"create", "--adapter", treehousepkg.Name, "--repo", "/work/app/sub", "--owner", owner, "--ttl", "1h", "--landed-exclude-remote", "mirror", "--key", "worktree-key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var conflict map[string]any
+			if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 3, args...)), &conflict); err != nil || conflict["reason"] != "key_conflict" {
+				t.Fatalf("keyed mismatch = %v, %v", conflict, err)
+			}
+		})
+	}
 	if lease["path"] != pool.slot || lease["resource"] != "treehouse-worktree:3" || resource["treehouse_lease_id"] != "tok-A" || resource["repo"] != "/work/app" || resource["treehouse_lease_holder"] != "dibs:"+id {
 		t.Fatalf("create = %v", created)
 	}
@@ -106,7 +125,7 @@ func TestTreehouseWorktreeOutputModes(t *testing.T) {
 
 	pool.dirty = " M a.txt\n?? b.txt\n"
 	var blocked map[string]any
-	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 1, "release", id, "--confirm")), &blocked); err != nil {
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 3, "release", id, "--confirm")), &blocked); err != nil {
 		t.Fatal(err)
 	}
 	blockers := blocked["blockers"].(map[string]any)
@@ -116,13 +135,13 @@ func TestTreehouseWorktreeOutputModes(t *testing.T) {
 	if hints := blocked["help"].([]any); !strings.Contains(hints[0].(string), "dibs release "+id+" --confirm") || !strings.Contains(hints[1].(string), "--discard-unlanded") {
 		t.Fatalf("help = %v", hints)
 	}
-	axi = drive(t, app, outputpkg.AXI, 1, "release", id, "--confirm")
+	axi = drive(t, app, outputpkg.AXI, 3, "release", id, "--confirm")
 	for _, want := range []string{"blockers:", "uncommitted[2]: a.txt,b.txt", "uncommitted_count: 2", "unpushed_count: 0", "code: COMMAND_FAILED", "help[2]:"} {
 		if !strings.Contains(axi, want) {
 			t.Fatalf("AXI blocked release lacks %q:\n%s", want, axi)
 		}
 	}
-	if !strings.Contains(drive(t, app, outputpkg.Human, 1, "release", id, "--confirm"), "unlanded work blocks cleanup") {
+	if !strings.Contains(drive(t, app, outputpkg.Human, 3, "release", id, "--confirm"), "unlanded work blocks cleanup") {
 		t.Fatal("human output hides the refusal")
 	}
 	sweep := drive(t, app, outputpkg.JSON, 0, "sweep", "--confirm")
@@ -140,7 +159,7 @@ func TestTreehouseWorktreeOutputModes(t *testing.T) {
 	if pool.claim != "" {
 		t.Fatal("slot was not returned")
 	}
-	if got := drive(t, app, outputpkg.JSON, 0, "release", id, "--confirm"); !strings.Contains(got, "already absent") {
+	if got := drive(t, app, outputpkg.JSON, 0, "release", id, "--confirm"); !strings.Contains(got, "already_done") {
 		t.Fatalf("repeat release = %s", got)
 	}
 }
