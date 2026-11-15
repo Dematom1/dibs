@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"time"
 
@@ -87,6 +88,15 @@ func detached(l Lease) Lease {
 	return l
 }
 
+func sameWorktreeExclusions(ref adapterpkg.ResourceRef, exclude []string) bool {
+	return slices.Equal(ref.ExcludeRemotes, exclude)
+}
+
+func sameWorktreeRequest(ref adapterpkg.ResourceRef, repo string, exclude []string) bool {
+	resolved, err := filepath.Abs(repo)
+	return err == nil && filepath.Clean(resolved) == ref.Repo && sameWorktreeExclusions(ref, exclude)
+}
+
 type CreateRequest struct {
 	Owner       ownerpkg.Reference
 	TTL         time.Duration
@@ -127,6 +137,9 @@ func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, bool, err
 	if l, done, err := keyed(s, host, r.Key, func(l Lease) bool {
 		ref := l.ResourceRef
 		if !sameOwner(l.Owner, r.Owner) || l.ProtectLiveOwner != r.ProtectLiveOwner || ref.Adapter != r.Adapter || l.KeyedBy != createMode(r.Pending) || (r.Name != "" && ref.Name != r.Name) {
+			return false
+		}
+		if r.Adapter == "treehouse-worktree" && !sameWorktreeRequest(ref, r.Repo, r.ExcludeRemotes) {
 			return false
 		}
 		if r.ScopeUnavailable == nil && r.Scope.Context != "" {
