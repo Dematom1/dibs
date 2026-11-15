@@ -116,6 +116,17 @@ func TestCreateKeepsPendingIntentOnBadAllocation(t *testing.T) {
 	}
 }
 
+func TestCreateRetainsTokenWhenStatusReportsAnotherPath(t *testing.T) {
+	f := &fake{answers: map[string][]reply{
+		"treehouse get --lease --json --lease-holder dibs:" + leaseID: {{out: `{"path":"` + slotPath + `","lease_id":"tok-A","lease_holder":"dibs:` + leaseID + `"}`}},
+		statusCall: {{out: status(t, slot{Name: "3", Path: "/pool/elsewhere", Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})}},
+	}}
+	ref, err := (worktree{f.run}).Create(context.Background(), target("", ""))
+	if err == nil || ref.Path != slotPath || ref.Claim != "tok-A" || !strings.Contains(err.Error(), "not the recorded") {
+		t.Fatalf("ref = %+v, err = %v", ref, err)
+	}
+}
+
 func TestCreateToleratesStatusFailureAfterAllocation(t *testing.T) {
 	f := &fake{answers: map[string][]reply{
 		"treehouse get --lease --json --lease-holder dibs:" + leaseID: {{out: `{"path":"` + slotPath + `","lease_id":"tok-A","lease_holder":"dibs:` + leaseID + `"}`}},
@@ -156,6 +167,25 @@ func TestDestroyRecoversPendingClaimByHolder(t *testing.T) {
 	}
 	if len(f.answers["treehouse return "+slotPath+" --if-lease-id tok-A --if-lease-holder dibs:"+leaseID]) != 0 {
 		t.Fatalf("pending claim was not returned: %q", f.calls)
+	}
+}
+
+func TestDestroyRetainsClaimReportedAtAnotherPath(t *testing.T) {
+	f := &fake{answers: map[string][]reply{statusCall: {{out: status(t, slot{Name: "9", Path: "/pool/elsewhere", Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})}}}}
+	err := (worktree{f.run}).Destroy(context.Background(), target(slotPath, "tok-A"))
+	if err == nil || !strings.Contains(err.Error(), "not the recorded") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(f.calls) != 1 {
+		t.Fatalf("touched mismatched claim: %q", f.calls)
+	}
+}
+
+func TestExistsRejectsClaimReportedAtAnotherPath(t *testing.T) {
+	f := &fake{answers: map[string][]reply{statusCall: {{out: status(t, slot{Name: "9", Path: "/pool/elsewhere", Status: "leased", LeaseID: "tok-A", LeaseHolder: holder(leaseID)})}}}}
+	present, err := (worktree{f.run}).exists(context.Background(), target(slotPath, "tok-A"))
+	if present || err == nil || !strings.Contains(err.Error(), "not the recorded") {
+		t.Fatalf("present = %v, err = %v", present, err)
 	}
 }
 

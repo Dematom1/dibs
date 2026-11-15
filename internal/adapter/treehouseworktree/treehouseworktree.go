@@ -101,6 +101,13 @@ func claimed(slots []slot, ref adapterpkg.ResourceRef) (slot, bool) {
 	return slot{}, false
 }
 
+func verifyClaimPath(s slot, ref adapterpkg.ResourceRef) error {
+	if ref.Path != "" && filepath.Clean(s.Path) != filepath.Clean(ref.Path) {
+		return fmt.Errorf("treehouse reports the claim at %s, not the recorded %s; lease retained", s.Path, ref.Path)
+	}
+	return nil
+}
+
 func (w worktree) Create(ctx context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	out, err := w.treehouse(ctx, t.Ref, "get", "--lease", "--json", "--lease-holder", t.Ref.Holder)
 	if err != nil {
@@ -115,6 +122,9 @@ func (w worktree) Create(ctx context.Context, t adapterpkg.Target) (adapterpkg.R
 	// The slot name is for display only; the token and path are the identity.
 	if slots, err := w.slots(ctx, ref); err == nil {
 		if s, ok := claimed(slots, ref); ok {
+			if err := verifyClaimPath(s, ref); err != nil {
+				return ref, err
+			}
 			ref.Name = s.Name
 		}
 	}
@@ -129,6 +139,9 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	s, held := claimed(slots, t.Ref)
 	if !held {
 		return gone(slots, t.Ref)
+	}
+	if err := verifyClaimPath(s, t.Ref); err != nil {
+		return err
 	}
 	if len(s.Processes) != 0 {
 		return processBlocker(s.Processes)
@@ -145,6 +158,11 @@ func (w worktree) Destroy(ctx context.Context, t adapterpkg.Target) error {
 		return err
 	}
 	current, held := claimed(latest, t.Ref)
+	if held {
+		if err := verifyClaimPath(current, t.Ref); err != nil {
+			return err
+		}
+	}
 	if !held || current.LeaseID != s.LeaseID || filepath.Clean(current.Path) != filepath.Clean(s.Path) || len(current.Processes) != 0 {
 		if held && len(current.Processes) != 0 {
 			return processBlocker(current.Processes)
@@ -194,7 +212,10 @@ func (w worktree) exists(ctx context.Context, t adapterpkg.Target) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	if _, held := claimed(slots, t.Ref); held {
+	if s, held := claimed(slots, t.Ref); held {
+		if err := verifyClaimPath(s, t.Ref); err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 	return false, gone(slots, t.Ref)
