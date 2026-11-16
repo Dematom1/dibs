@@ -119,14 +119,23 @@ func workingDirs(ctx context.Context, sys terminalpkg.System, pids []string) map
 }
 
 func lookup(ctx context.Context, sys terminalpkg.System, _ string, id string) (terminalpkg.Pane, bool, error) {
-	found, err := processes(ctx, sys, "-p", id)
+	all, err := processes(ctx, sys, "-ax")
 	if err != nil {
 		return terminalpkg.Pane{}, false, err
 	}
-	for _, e := range found {
-		if strconv.Itoa(e.pid) == id && holder(e.command) {
-			return terminalpkg.Pane{ID: id, PID: e.pid, Label: e.command}, true, nil
+	for _, e := range all {
+		if strconv.Itoa(e.pid) != id || !holder(e.command) {
+			continue
 		}
+		p := terminalpkg.Pane{ID: id, PID: e.pid, Label: e.command}
+		for _, child := range all {
+			if child.ppid == e.pid {
+				p.ChildPID = child.pid
+				p.Command = child.command
+				break
+			}
+		}
+		return p, true, nil
 	}
 	return terminalpkg.Pane{}, false, nil
 }

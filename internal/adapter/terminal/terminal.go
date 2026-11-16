@@ -20,11 +20,12 @@ import (
 // Pane is one terminal as its tool reports it. PID is the terminal's direct
 // child process, or 0 when the tool reports none.
 type Pane struct {
-	ID      string
-	PID     int
-	Label   string
-	Command string
-	Dir     string
+	ID       string
+	PID      int
+	Label    string
+	Command  string
+	Dir      string
+	ChildPID int
 }
 
 // ErrNoServer is proof that the server holds no terminals. Drivers return it
@@ -262,6 +263,17 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	if err != nil || s == absent {
 		return err
 	}
+	childPID, childStart := 0, ""
+	if s == owned && p.ChildPID > 0 {
+		var live ownerpkg.Liveness
+		childStart, live = r.sys.Process(p.ChildPID)
+		if live == ownerpkg.Unknown {
+			return fmt.Errorf("cannot inspect held shell %d; lease retained", p.ChildPID)
+		}
+		if live == ownerpkg.Alive {
+			childPID = p.ChildPID
+		}
+	}
 	if s == owned {
 		if r.driver.Hangup != nil {
 			r.driver.Hangup(ctx, r.sys, p)
@@ -269,8 +281,11 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 			// EPERM (a root login) leaves the hangup to the pty close below.
 			_ = r.sys.Signal(p.PID, syscall.SIGHUP)
 		}
-		if s, p, err = r.settle(ctx, t.Ref); err != nil || s == absent {
+		if s, p, err = r.settle(ctx, t.Ref); err != nil {
 			return err
+		}
+		if s == absent {
+			return r.settleChild(ctx, childPID, childStart)
 		}
 	}
 	if err := r.driver.Close(ctx, r.sys, t.Ref.Terminal.Server, p); err != nil {
@@ -279,13 +294,40 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 		}
 		return fmt.Errorf("cannot close %s %s; lease retained: %w", r.driver.Noun, t.Ref.Name, err)
 	}
-	if s, _, err = r.settle(ctx, t.Ref); err != nil || s == absent {
+	if s, _, err = r.settle(ctx, t.Ref); err != nil {
 		return err
+	}
+	if s == absent {
+		return r.settleChild(ctx, childPID, childStart)
 	}
 	return fmt.Errorf("%s %s survived cleanup; retry dibs release", r.driver.Noun, t.Ref.Name)
 }
 
 // settle polls until the terminal is absent or the grace period ends.
+func (r resource) settleChild(ctx context.Context, pid int, start string) error {
+	if pid == 0 {
+		return nil
+	}
+	const step = 100 * time.Millisecond
+	for waited := time.Duration(0); ; waited += step {
+		current, live := r.sys.Process(pid)
+		switch live {
+		case ownerpkg.Dead:
+			return nil
+		case ownerpkg.Unknown:
+			return fmt.Errorf("cannot verify held shell %d is gone; lease retained", pid)
+		case ownerpkg.Alive:
+			if current != start {
+				return nil
+			}
+		}
+		if waited >= r.sys.Grace {
+			return fmt.Errorf("held shell %d survived cleanup; lease retained", pid)
+		}
+		r.sys.Sleep(step)
+	}
+}
+
 func (r resource) settle(ctx context.Context, ref adapterpkg.ResourceRef) (state, Pane, error) {
 	const step = 100 * time.Millisecond
 	for waited := time.Duration(0); ; waited += step {

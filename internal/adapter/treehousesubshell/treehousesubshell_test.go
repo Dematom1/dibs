@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	terminalpkg "github.com/Dematom1/dibs/internal/adapter/terminal"
+	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	"time"
 )
 
 type reply struct {
@@ -56,11 +58,8 @@ const all = "-ax -ww -o pid=,ppid=,command="
 func TestListLookupHangupClose(t *testing.T) {
 	var signals []string
 	sys := fake(t, map[string]reply{
-		all:                                 {out: table},
-		"lsof -a -d cwd -Fpn -p 201,301":    {out: "p201\nfcwd\nn/pool/1/repo\np301\nfcwd\nn/pool/3/repo\n"},
-		"-p 200 -ww -o pid=,ppid=,command=": {out: "  200   100 treehouse get\n"},
-		"-p 202 -ww -o pid=,ppid=,command=": {out: "  202   201 claude\n"},
-		"-p 999 -ww -o pid=,ppid=,command=": {code: 1},
+		all:                              {out: table},
+		"lsof -a -d cwd -Fpn -p 201,301": {out: "p201\nfcwd\nn/pool/1/repo\np301\nfcwd\nn/pool/3/repo\n"},
 	}, &signals)
 	panes, err := list(context.Background(), sys, local)
 	want := []terminalpkg.Pane{{ID: "200", PID: 200, Label: "/nix/store/abc-treehouse/bin/treehouse get", Command: "/bin/zsh -i -l", Dir: "/pool/1/repo"}, {ID: "300", PID: 300, Label: "treehouse enter wt-3", Command: "/bin/zsh -i -l", Dir: "/pool/3/repo"}}
@@ -85,6 +84,44 @@ func TestListLookupHangupClose(t *testing.T) {
 	}
 }
 
+func TestDestroyRetainsShellThatOutlivesHolder(t *testing.T) {
+	holderAlive := true
+	sys := terminalpkg.System{
+		Run: func(_ context.Context, _ []string, name string, _ ...string) ([]byte, string, int, error) {
+			if name != "ps" {
+				t.Fatalf("unexpected command %s", name)
+			}
+			if holderAlive {
+				return []byte("200 100 treehouse get\n201 200 /bin/zsh -i -l\n"), "", 0, nil
+			}
+			return []byte("201 1 /bin/zsh -i -l\n"), "", 0, nil
+		},
+		Process: func(pid int) (string, ownerpkg.Liveness) {
+			if pid == 200 {
+				if holderAlive {
+					return "holder-start", ownerpkg.Alive
+				}
+				return "", ownerpkg.Dead
+			}
+			if pid == 201 {
+				return "shell-start", ownerpkg.Alive
+			}
+			return "", ownerpkg.Dead
+		},
+		Signal: func(pid int, sig syscall.Signal) error {
+			if pid == 200 && sig == syscall.SIGTERM {
+				holderAlive = false
+			}
+			return nil
+		},
+		Sleep: func(time.Duration) {}, Grace: 0,
+	}
+	ref := adapterpkg.ResourceRef{Adopted: true, Adapter: "treehouse-subshell", Name: "200", Terminal: &adapterpkg.TerminalPin{Server: local, PID: 200, Start: "holder-start"}}
+	if err := New(sys).Adapter.Destroy(context.Background(), adapterpkg.Target{Ref: ref}); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
+		t.Fatalf("Destroy error = %v, want surviving shell to retain lease", err)
+	}
+}
+
 func TestProcessErrorsStayUnknown(t *testing.T) {
 	var signals []string
 	for name, r := range map[string]reply{
@@ -93,7 +130,7 @@ func TestProcessErrorsStayUnknown(t *testing.T) {
 		"malformed row":   {out: "abc def ghi\n"},
 		"too few columns": {out: "200\n"},
 	} {
-		if _, _, err := lookup(context.Background(), fake(t, map[string]reply{"-p 200 -ww -o pid=,ppid=,command=": r}, &signals), local, "200"); err == nil {
+		if _, _, err := lookup(context.Background(), fake(t, map[string]reply{all: r}, &signals), local, "200"); err == nil {
 			t.Fatalf("%s: treated as proof", name)
 		}
 		if _, err := list(context.Background(), fake(t, map[string]reply{all: r}, &signals), local); err == nil {
