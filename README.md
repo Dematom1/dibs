@@ -1,32 +1,67 @@
 # dibs
 
-Owner-and-expiry leases for local stacks and clusters. One Go binary, no daemon.
-Supports leases, kind and k3d clusters, Docker Compose projects, running shells,
-and local jobs with machine-budget admission on macOS and Linux. Jobs can run on
-configured SSH machines.
+Owner-and-expiry leases for local stacks, clusters, shells, and jobs. One Go
+binary, no daemon. A lease records a resource and its owner. By default, a lease
+whose owner has died, or whose expiry has passed, is reclaimable, and
+`dibs sweep --confirm` reclaims it. dibs manages kind and k3d clusters, Docker
+Compose projects, running shells, and local jobs with machine-budget admission on
+macOS and Linux. Jobs can run on configured SSH machines.
+
+## Demo
+
+![A worker leases a resource, its owner dies, sweep reclaims the lease, and a shell lease is released](demo/demo.gif)
+
+Every command and its output in this recording are real, from the released
+v0.2.4 binary with an empty state directory. The tape only replays the keystrokes.
+[demo/record.sh](demo/record.sh) downloads that release, checks it against
+`checksums.txt`, and renders [demo/demo.gif](demo/demo.gif) from
+[demo/demo.tape](demo/demo.tape) with [VHS](https://github.com/charmbracelet/vhs).
+Run `demo/record.sh` to reproduce the GIF; it needs `vhs`, `jq`, and `shasum` on `PATH`.
+
+## 60-second quickstart
+
+These are the commands in the demo. The `none` adapter records a lease without
+touching Docker or any other resource, so this runs on a plain machine.
+
+```sh
+sleep 600 & WORKER=$!                  # a process that will own the lease
+dibs create --adapter none --owner pid:$WORKER --ttl 2h --resources 'demo worker' --label task=demo
+dibs ps --json | jq '.leases[] | {id, owner, liveness, expires}'
+kill $WORKER                           # the owner dies; the lease stays recorded
+dibs sweep                             # preview: the dead-owner lease is eligible
+dibs sweep --confirm                   # reclaim it
+LEASE=$(dibs create --adapter none --owner pid:$$ --ttl 1h --resources 'demo shell' --quiet)
+dibs release $LEASE                    # preview
+dibs release $LEASE --confirm          # release it
+```
+
+`dibs ps` prints a wide table on a terminal, so the demo filters its JSON with
+`jq`. `none` leases hold metadata only: `sweep` and `release` forget them and
+delete nothing external. The sections below cover the other adapters, the agent
+view (`--axi`), and the safety rules.
 
 ## Install
 
-Requires Go 1.26 or later.
+Pick one. Each installs the same `dibs` program.
 
-```sh
-go install github.com/Dematom1/dibs@latest
-dibs --version
-```
+- **Go** (Go 1.26 or later): `go install github.com/Dematom1/dibs@latest`.
+  The module path is case-sensitive; `github.com/dematom1/dibs` fails.
+- **Nix**: `nix run github:Dematom1/dibs -- --version` runs it, and the flake
+  builds `dibs` for `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`.
+- **Release binary**: Linux and macOS archives, amd64 and arm64, on the
+  [GitHub Releases](https://github.com/Dematom1/dibs/releases) page. Check each
+  archive against `checksums.txt` before you run it. Release macOS binaries are
+  not Developer ID signed, so Gatekeeper may quarantine them. After the checksum
+  passes, `xattr -d com.apple.quarantine /path/to/dibs` clears the flag on that
+  binary. Do not disable Gatekeeper globally.
 
-`--version` reports the module version without the leading `v` (for example,
-`0.2.0`). Checkout builds can report a commit-bearing module pseudo-version,
-such as `0.1.1-0.20261110022950-b59f79420c85`. Without a module version, embedded
-VCS metadata produces `devel-<12-character-commit>`, with `-dirty` for local
-changes. Builds without either form of metadata, such as `go run .`, report
-`devel`. Release builds can override this with `-ldflags '-X main.version=0.2.0'`.
+`dibs --version` prints the version without the leading `v`, for example `0.2.4`.
+Builds from a checkout report a commit-based version instead. From a checkout,
+`just build` writes `bin/dibs`, and `just install` installs it to Go's binary
+directory.
 
-The module path is case-sensitive; `github.com/dematom1/dibs` fails. Prebuilt
-Linux and macOS binaries are available from the [GitHub Releases](https://github.com/Dematom1/dibs/releases) page.
-
-From a checkout, `just install` installs to Go's binary directory. `just build`
-writes `bin/dibs`. Installing with `go install` does not require just. Resource adapters also require `kind`, `k3d`, `docker`,
-and Docker Compose, plus a running Docker engine.
+The quickstart needs no Docker. kind, k3d, and Compose leases need their own
+tool (`kind`, `k3d`, or `docker compose`) on `PATH`, plus a running Docker engine.
 
 ## Upgrade from berth
 
