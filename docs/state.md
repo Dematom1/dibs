@@ -141,7 +141,7 @@ Cloned hosts must have distinct OS identities. dibs does not generate or modify 
 | `resource.treehouse_lease_holder` | `ResourceRef.Holder` | `dibs:<id>` for slots dibs allocated; empty for adopted slots |
 | `resource.landed_exclude_remotes` | `ResourceRef.ExcludeRemotes` | Remotes whose refs do not count as landed |
 | `job.budget.cores`, `job.budget.memory_bytes` | `budget.Amount` | Reserved cores and bytes |
-| `releasing` | `Lease.Releasing`, `*time.Time` | Outside-lock cleanup started; blocks renewal until release or sweep retries cleanup. Omitted otherwise. |
+| `releasing` | `Lease.Releasing`, `*time.Time` | Outside-lock cleanup started; blocks renewal until release or sweep retries cleanup. An adapter refusal that touched nothing (unlanded work or running processes) restores the value it had before that attempt. Omitted otherwise. |
 | `job.class` | `ReservationView.Class` | Class name used for the request |
 | `job.leader` | `ReservationView.Leader` | `pid` owner of the process group leader. Empty until the child starts. |
 | `protect_live_owner` | `Lease.ProtectLiveOwner` | `true` for live-owner protection. Version 3 or later. Omitted when false. |

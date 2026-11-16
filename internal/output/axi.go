@@ -142,7 +142,14 @@ func toonObject(w io.Writer, object map[string]any, indent string) {
 				}
 				continue
 			}
-			fields := keys(v[0])
+			// Columns are the union of every row's keys, so a key that only later rows carry is not dropped.
+			union := map[string]any{}
+			for _, row := range v {
+				for field := range row {
+					union[field] = nil
+				}
+			}
+			fields := keys(union)
 			quotedFields := make([]string, len(fields))
 			for i, field := range fields {
 				quotedFields[i] = toonKey(field)

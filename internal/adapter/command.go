@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -31,7 +32,7 @@ func RunCommandIn(ctx context.Context, dir string, env []string, name string, ar
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(callerEnv(), env...)
 	cmd.Stdin = nil
 	var diagnostics bytes.Buffer
 	cmd.Stderr = &diagnostics
@@ -50,4 +51,18 @@ func RunCommandIn(ctx context.Context, dir string, env []string, name string, ar
 
 func DockerEnv(ref ResourceRef) []string {
 	return []string{"DOCKER_HOST=", "DOCKER_CONTEXT=" + ref.Context, "KIND_EXPERIMENTAL_PROVIDER=docker", "COMPOSE_INTERACTIVE_NO_CLI=1"}
+}
+
+// gitLocation names variables that redirect git away from the directory a
+// command targets with -C; a caller's values must never steer an adapter.
+var gitLocation = map[string]bool{"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true, "GIT_COMMON_DIR": true, "GIT_OBJECT_DIRECTORY": true, "GIT_ALTERNATE_OBJECT_DIRECTORIES": true, "GIT_NAMESPACE": true, "GIT_PREFIX": true}
+
+func callerEnv() []string {
+	var kept []string
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); !gitLocation[name] {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }

@@ -126,3 +126,11 @@ func TestPendingAndReconcileSnapshots(t *testing.T) {
 		snapshot(t, name+"-human", out.String())
 	}
 }
+
+func TestTOONTableColumnsCoverEveryRow(t *testing.T) {
+	var out bytes.Buffer
+	Emit(&out, AXI, map[string]any{"rows": []map[string]any{{"id": "a"}, {"id": "b", "path": "/pool/3/app"}}})
+	if got := out.String(); !strings.Contains(got, "rows[2]{id,path}:") || !strings.Contains(got, "a,null") || !strings.Contains(got, `b,/pool/3/app`) {
+		t.Fatalf("a key only a later row carries was dropped:\n%s", got)
+	}
+}

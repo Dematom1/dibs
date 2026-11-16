@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -226,4 +227,20 @@ func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapte
 }
 func (a composeAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
 	return composepkg.New(a.run).Adapter.Destroy(ctx, l)
+}
+
+func TestRunCommandInIgnoresCallerGitLocation(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "elsewhere.git"))
+	t.Setenv("GIT_WORK_TREE", t.TempDir())
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "index"))
+	out, err := adapterpkg.RunCommandIn(context.Background(), "", nil, "git", "-C", repo, "rev-parse", "--absolute-git-dir")
+	want, _ := filepath.EvalSymlinks(filepath.Join(repo, ".git"))
+	got, _ := filepath.EvalSymlinks(strings.TrimSpace(string(out)))
+	if err != nil || got != want {
+		t.Fatalf("git followed the caller's location: %q, %v (want %s)", out, err, want)
+	}
 }

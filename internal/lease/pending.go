@@ -449,10 +449,10 @@ func (m *Manager) Reclaim(ctx context.Context, id string, confirm bool) (Reclaim
 		return ReclaimResult{ID: id, Status: "preview", Liveness: live}, nil
 	}
 	if m.cleansUpOutsideLock(l) {
-		err := markReleasing(s, &l)
+		c, err := markReleasing(s, l)
 		s.Close()
 		if err == nil {
-			_, err = m.releaseOutsideLock(ctx, l, false)
+			_, err = m.releaseOutsideLock(ctx, c, false)
 		}
 		if err != nil {
 			return ReclaimResult{}, err

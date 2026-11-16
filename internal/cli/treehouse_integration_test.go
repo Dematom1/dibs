@@ -165,17 +165,27 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 
 	t.Run("active slot process blocks release until it exits", func(t *testing.T) {
 		id, path := lab.acquire(owner)
-		writer := exec.Command("sh", "-c", "touch during-cleanup; sleep 2; rm during-cleanup")
+		// The writer lives until the test closes its stdin, so the refusal never races its exit.
+		writer := exec.Command("sh", "-c", "touch during-cleanup; read _; rm during-cleanup")
 		writer.Dir = path
+		hold, err := writer.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := writer.Start(); err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			writer.Process.Kill()
+			writer.Wait()
+		})
 		blocked := invoke(t, 1, "release", id, "--confirm")
 		blockers := blocked["blockers"].(map[string]any)
 		processes := blockers["processes"].([]any)
 		if len(processes) == 0 {
 			t.Fatalf("process was not reported: %v", blocked)
 		}
+		hold.Close()
 		if err := writer.Wait(); err != nil {
 			t.Fatal(err)
 		}
@@ -338,13 +348,18 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 			ids = append(ids, id)
 		}
 		renewed := invoke(t, 0, "create", "--owner", owner, "--ttl", "1h")["lease"].(map[string]any)["id"].(string)
-		done := make(chan time.Duration, len(ids))
+		type outcome struct {
+			took time.Duration
+			code int
+			out  string
+		}
+		done := make(chan outcome, len(ids))
 		for _, id := range ids {
 			go func() {
 				start := time.Now()
 				var out strings.Builder
-				run(context.Background(), []string{"--json", "release", id, "--confirm"}, &out)
-				done <- time.Since(start)
+				code := run(context.Background(), []string{"--json", "release", id, "--confirm"}, &out)
+				done <- outcome{time.Since(start), code, out.String()}
 			}()
 		}
 		start := time.Now()
@@ -352,7 +367,11 @@ func TestIntegrationTreehouseWorktree(t *testing.T) {
 		renewal := time.Since(start)
 		var slowest time.Duration
 		for range ids {
-			slowest = max(slowest, <-done)
+			o := <-done
+			if o.code != 0 {
+				t.Errorf("concurrent release exited %d: %s", o.code, o.out)
+			}
+			slowest = max(slowest, o.took)
 		}
 		t.Logf("renewal %v while %d real slot returns ran (slowest return %v)", renewal, len(ids), slowest)
 		if renewal > 2*time.Second {

@@ -42,9 +42,14 @@ func (e *UnlandedError) Error() string {
 
 // View is the stable machine-readable form of the refusal.
 func (e *UnlandedError) View() map[string]any {
+	// Plain maps, so AXI renders each process as a name and pid row.
+	processes := []map[string]any{}
+	for _, p := range e.Processes {
+		processes = append(processes, map[string]any{"name": p.Name, "pid": p.PID})
+	}
 	return map[string]any{
 		"uncommitted": append([]string{}, sample(e.Uncommitted)...), "uncommitted_count": len(e.Uncommitted),
 		"unpushed": append([]string{}, sample(e.Unpushed)...), "unpushed_count": len(e.Unpushed),
-		"processes": append([]Process{}, e.Processes...),
+		"processes": processes,
 	}
 }

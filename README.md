@@ -319,8 +319,9 @@ The `treehouse-worktree` adapter leases one slot of a
 [treehouse](https://github.com/kunchenguid/treehouse) worktree pool. Treehouse
 keeps allocation, reset, and its own durable lease token. Dibs adds the owner,
 expiry, and reclaim that treehouse leases do not have. Without lease policies,
-expiry reclaims a worktree lease as it does every lease, so renew it with
-`dibs extend` before expiry. To keep a live owner's slot past expiry, pass
+an expired worktree lease becomes eligible for reclamation like every lease, and
+the next `dibs sweep --confirm` returns its slot, so renew it with `dibs extend`
+before expiry. To keep a live owner's slot past expiry, pass
 `--protect-live-owner` (see [live-owner protection](#protect-a-live-owners-lease)), or
 turn on lease policies, whose built-in `treehouse-worktree` row is owner-bound.
 With the consumer contract on, `--key` makes `create` and `adopt` retries return
@@ -411,7 +412,9 @@ that dibs owns. Release the lease instead.
 Slot returns can take seconds. Release, sweep, and `reclaim` run this adapter's
 cleanup without the host-wide state lock, so renewals of other leases do not
 wait behind it. Dibs marks the lease first, and `extend` refuses a marked lease
-(`cleanup_in_progress`) until a release or sweep finishes the cleanup. Dibs then
+(`cleanup_in_progress`) until a release or sweep finishes the cleanup. A refusal
+for unlanded work or running processes touches nothing, so it removes the mark
+again and the owner can keep renewing. Dibs then
 forgets the lease under the lock only if its recorded identity did not change in
 the meantime.
 

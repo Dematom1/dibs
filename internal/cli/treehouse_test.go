@@ -26,6 +26,7 @@ import (
 // fakePool is a one-slot treehouse pool and its git checkout, answering only the calls the adapter makes.
 type fakePool struct {
 	repo, slot, claim, holder, dirty, statusOverride string
+	processes                                        []any
 }
 
 func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
@@ -49,7 +50,7 @@ func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, arg
 		if p.claim != "" {
 			status = "leased"
 		}
-		return json.Marshal([]map[string]any{{"name": "3", "path": p.slot, "status": status, "lease_id": p.claim, "lease_holder": p.holder, "processes": []any{}}})
+		return json.Marshal([]map[string]any{{"name": "3", "path": p.slot, "status": status, "lease_id": p.claim, "lease_holder": p.holder, "processes": append([]any{}, p.processes...)}})
 	case strings.HasSuffix(call, "status --porcelain --untracked-files=all"):
 		return []byte(p.dirty), nil
 	case strings.Contains(call, " log --format=%H HEAD --not "):
@@ -259,7 +260,7 @@ func TestTreehouseWorktreeOptIn(t *testing.T) {
 			if got := slices.Contains(resources.CreateNames(), treehousepkg.Name); got != tc.want {
 				t.Fatalf("creatable = %v, want %v", got, tc.want)
 			}
-			for _, command := range []string{"create", "release"} {
+			for _, command := range []string{"create", "adopt", "release"} {
 				if got := strings.Contains(help(command), "treehouse-worktree"); got != tc.want {
 					t.Fatalf("%s help shows treehouse-worktree = %v, want %v", command, got, tc.want)
 				}
@@ -323,5 +324,35 @@ func TestTreehouseContractRefusesUnlandedWork(t *testing.T) {
 	pool.dirty = ""
 	if got := drive(t, app, outputpkg.AXI, 0, "release", id, "--confirm"); !strings.Contains(got, "status: released") {
 		t.Fatalf("release = %s", got)
+	}
+}
+
+func TestTreehouseBlockingProcessesRenderInAXIAndJSON(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("TREEHOUSE_ROOT", "")
+	fixedBudget(t)
+	pool := &fakePool{repo: "/work/app", slot: "/pool/app-1/3/app"}
+	app := fakeTreehouseApp(pool)
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	var created map[string]any
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 0, "create", "--adapter", treehousepkg.Name, "--repo", "/work/app", "--owner", owner, "--ttl", "1h")), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := created["lease"].(map[string]any)["id"].(string)
+	pool.processes = []any{map[string]any{"name": "vim", "pid": 4242}}
+	axi := drive(t, app, outputpkg.AXI, 1, "release", id, "--confirm")
+	if !strings.Contains(axi, "processes[1]{name,pid}:") || !strings.Contains(axi, "vim,4242") {
+		t.Fatalf("AXI refusal hides the blocking process:\n%s", axi)
+	}
+	var blocked map[string]any
+	if err := json.Unmarshal([]byte(drive(t, app, outputpkg.JSON, 1, "release", id, "--confirm")), &blocked); err != nil {
+		t.Fatal(err)
+	}
+	if procs := blocked["blockers"].(map[string]any)["processes"].([]any); len(procs) != 1 || procs[0].(map[string]any)["name"] != "vim" || procs[0].(map[string]any)["pid"] != float64(4242) {
+		t.Fatalf("JSON blockers = %v", blocked["blockers"])
+	}
+	pool.processes = nil
+	if got := drive(t, app, outputpkg.AXI, 0, "release", id, "--confirm"); !strings.Contains(got, "status: released") {
+		t.Fatalf("release after the process exited = %s", got)
 	}
 }

@@ -434,3 +434,37 @@ func TestKeyedAdoptionMatchesSlotPathAndToken(t *testing.T) {
 		t.Fatalf("same key for another token = %v", err)
 	}
 }
+
+func TestRefusedCleanupRestoresTheRenewalMarker(t *testing.T) {
+	ctx := context.Background()
+	a := &scripted{}
+	m := scriptedManager(t, a, nil)
+	l, _, err := m.Create(ctx, CreateRequest{Owner: liveOwner(t), TTL: time.Hour, Adapter: "slow"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.destroy = func(adapterpkg.Target) error { return &adapterpkg.UnlandedError{Uncommitted: []string{"draft.txt"}} }
+	var unlanded *adapterpkg.UnlandedError
+	if _, err := m.Release(ctx, ReleaseRequest{ID: l.ID, Confirm: true}); !errors.As(err, &unlanded) {
+		t.Fatalf("release = %v", err)
+	}
+	if got, ok := stored(t, m, l.ID); !ok || got.Releasing != nil {
+		t.Fatalf("a refusal that changed nothing left the lease marked: %+v, %v", got.Releasing, ok)
+	}
+	if _, status, err := m.Extend(ctx, l.ID, time.Hour); err != nil || status != Renewed {
+		t.Fatalf("the owner cannot renew after a refused release: %q, %v", status, err)
+	}
+
+	a.destroy = func(adapterpkg.Target) error { return errors.New("treehouse return failed midway") }
+	if _, err := m.Release(ctx, ReleaseRequest{ID: l.ID, Confirm: true}); err == nil {
+		t.Fatal("failed cleanup reported as released")
+	}
+	interrupted, _ := stored(t, m, l.ID)
+	a.destroy = func(adapterpkg.Target) error { return &adapterpkg.UnlandedError{Uncommitted: []string{"draft.txt"}} }
+	if _, err := m.Release(ctx, ReleaseRequest{ID: l.ID, Confirm: true}); !errors.As(err, &unlanded) {
+		t.Fatalf("release = %v", err)
+	}
+	if got, _ := stored(t, m, l.ID); got.Releasing == nil || !got.Releasing.Equal(*interrupted.Releasing) {
+		t.Fatalf("a refusal erased an interrupted cleanup's marker: %+v", got.Releasing)
+	}
+}

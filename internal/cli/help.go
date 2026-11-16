@@ -54,9 +54,6 @@ var commandHelp = map[string]string{
   [--protect-live-owner] [--key K] [--idle D] [--max-lifetime D] [--full] [--axi | --json]
 dibs adopt shell <pid> --owner KIND:ID --ttl D [--key K] [--idle D] [--max-lifetime D]
 dibs adopt <kind|k3d|compose> <handle> --pending ID [--file PATH] [--axi | --json]
-dibs adopt treehouse-worktree <slot-path> --lease-id ID --owner KIND:ID --ttl D
-  [--landed-exclude-remote NAME ...] [--key K] [--protect-live-owner]
-  [--idle D] [--max-lifetime D] (opt-in: DIBS_TREEHOUSE_WORKTREE=1)
 Explicitly lease an existing resource. Existence must be verified and no lease
 may already own it. Captures cleanup configuration; does not recreate resources.
 Owner and positive TTL are required; with lease policies on, the policy
@@ -74,7 +71,6 @@ returns status already_done. Statuses: adopted, bound, already_done.
 Examples:
   dibs adopt kind my-lab --owner pid:1234 --ttl 1h
   dibs adopt compose my-stack --file compose.yaml --owner pid:1234 --ttl 2h
-  dibs adopt treehouse-worktree /pool/app-1a2b/3/app --lease-id <token> --owner pid:1234 --ttl 8h
   dibs adopt kind lab-7 --pending <id>
   dibs adopt shell "$$" --owner 'exec:test -e /tmp/task-7.open' --ttl 8h`,
 	"reconcile": `dibs reconcile [<id>] [--confirm] [--axi | --json]
@@ -258,6 +254,11 @@ Examples:
 }
 
 var worktreeHelp = map[string]string{
+	"adopt": `dibs adopt treehouse-worktree <slot-path> --lease-id ID --owner KIND:ID --ttl D
+  [--landed-exclude-remote NAME ...] [--key K] [--protect-live-owner]
+  [--idle D] [--max-lifetime D]
+registers a slot treehouse already leased durably, verified by its exact token.
+  dibs adopt treehouse-worktree /pool/app-1a2b/3/app --lease-id <token> --owner pid:1234 --ttl 8h`,
 	"create": `treehouse-worktree: [--repo DIR (default .)] [--landed-exclude-remote NAME ...]
 leases a treehouse pool slot (lease.path) and returns it only after its work
 landed on a remote; unlanded work keeps the lease.
