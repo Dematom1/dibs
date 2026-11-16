@@ -30,12 +30,12 @@ func (lab tmuxLab) tmux(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// start launches a fresh server on the lab socket with three /bin/sh panes and returns pane ID to shell PID.
+// start launches a fresh server on the lab socket with three interactive /bin/sh panes and returns pane ID to shell PID.
 func (lab tmuxLab) start() map[string]int {
 	lab.t.Helper()
-	lab.tmux("new-session", "-d", "-s", "dibs", "-x", "120", "-y", "40", "/bin/sh")
-	lab.tmux("split-window", "-t", "dibs", "/bin/sh")
-	lab.tmux("split-window", "-t", "dibs", "/bin/sh")
+	lab.tmux("new-session", "-d", "-s", "dibs", "-x", "120", "-y", "40", "/bin/sh", "-i")
+	lab.tmux("split-window", "-t", "dibs", "/bin/sh", "-i")
+	lab.tmux("split-window", "-t", "dibs", "/bin/sh", "-i")
 	return lab.panes()
 }
 
