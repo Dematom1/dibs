@@ -59,7 +59,7 @@ dibs uses the XDG path on macOS too. The legacy fallback never moves or rewrites
 | `classes.<name>.memory` | memory string | Must be positive |
 | `classes.<name>.timeout` | Go duration string | Must be positive, such as `30m` |
 | `machines.<name>` | object | See [Machines](#machines) |
-| `pr_owner` | boolean | Registers the `pr` owner kind. See the README |
+| `pr_owner` | boolean | Registers the `pr` owner kind. See [pull request owners](guides/owners.md#pull-request-owners) |
 | `live_owner_protection` | boolean | Allows `--protect-live-owner` on `create` and `adopt`. See [Live-owner protection](leases.md#live-owner-protection) |
 | `consumer_contract` | boolean | Turns on consumer contract 1: `--pending` and `--key`, `reconcile`, `reclaim`, `explain`, and the contract output and exit codes of `extend` and `release`. See [Consumer contract](consumer-contract.md) |
 | `treehouse_worktree_adapter` | boolean | Allows new `treehouse-worktree` leases. See [Adapters](adapters.md#treehouse-worktree) |

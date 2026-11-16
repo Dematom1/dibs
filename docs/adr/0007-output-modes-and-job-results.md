@@ -10,6 +10,6 @@ Job output is a different contract. Child stdout and stderr pass through unchang
 
 R-B4 preserves the child's exit code on completion, returns 124 when the deadline kills it, and returns the documented code 75 when no slot frees within the wait. Dibs's own AXI codes 1 and 2 apply only before a child starts. Child exit codes may overlap those values. Signal termination returns 128 plus the signal number, and helper or wait failures use 125 or 126 with stderr diagnostics. SSH transport failure after SSH starts returns 76 with an unknown remote outcome, distinct from an authoritative child result of 76 or 255.
 
-The [AXI exit-code table](../../README.md#axi-exit-codes) and `dibs job --help` are the public lookup points for these results. Restructuring output must preserve both the content and the stdout or stderr channel, not merely the exit code.
+The [AXI exit-code table](../guides/command-reference.md#axi-exit-codes) and `dibs job --help` are the public lookup points for these results. Restructuring output must preserve both the content and the stdout or stderr channel, not merely the exit code.
 
 Evidence: [rendering](../../internal/output/output.go), [command output and help](../../internal/cli/cli.go), [job results](../../internal/lease/job_run.go), [SSH results](../../internal/remote/ssh.go), and [R-B4 in the local-job change](https://github.com/Dematom1/dibs/pull/2).

@@ -1,6 +1,6 @@
 # dibs component docs
 
-These pages describe how each part of dibs works and the invariants that every change must keep. They are written for contributors and code reviewers. For installation and everyday use, read the [project README](../README.md).
+These pages describe how each part of dibs works and the invariants that every change must keep. They are written for contributors and code reviewers. For installation and everyday use, read the [user guides](guides/README.md).
 
 Related records:
 
