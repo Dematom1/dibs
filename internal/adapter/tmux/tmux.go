@@ -16,7 +16,7 @@ import (
 
 var paneID = regexp.MustCompile(`^%[0-9]+$`)
 
-const format = "#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{session_name}:#{window_index}.#{pane_index}"
+const format = "#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_current_path}|#{session_name}:#{window_index}.#{pane_index}"
 
 // resolveServer pins the socket path: an explicit path, else the caller's $TMUX socket, else tmux's default socket.
 func resolveServer(_ context.Context, _ terminalpkg.System, requested string) (string, error) {
@@ -68,7 +68,7 @@ func list(ctx context.Context, sys terminalpkg.System, server string) ([]termina
 		if line == "" {
 			continue
 		}
-		fields := strings.Split(line, "\t")
+		fields := strings.SplitN(line, "|", 5)
 		if len(fields) != 5 || !paneID.MatchString(fields[0]) {
 			return nil, errors.New("malformed tmux pane listing; existence is unknown")
 		}
