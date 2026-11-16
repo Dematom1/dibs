@@ -105,4 +105,4 @@ A size or version mismatch keeps the existing binary. Agents that are already ru
 
 ## Planned
 
-The approved direction in [VISION.md](../VISION.md) names interactive remote jobs and worktree sync into a per-lease remote directory. Neither is built. The [README](../README.md) states that worktree transport and Kubernetes-backed machines are deferred. Remote jobs run noninteractively with `/dev/null` as stdin.
+The approved direction in [VISION.md](../VISION.md) names interactive remote jobs and worktree sync into a per-lease remote directory. Neither is built. The [state and safety guide](guides/state-and-safety.md) states that worktree transport and Kubernetes-backed machines are deferred. Remote jobs run noninteractively with `/dev/null` as stdin.

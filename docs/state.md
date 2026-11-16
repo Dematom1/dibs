@@ -23,7 +23,7 @@ When the `dibs` directory is missing and a legacy `berth` directory exists, `mig
 
 `openStore` runs `chmod` on the directory and on `state.json` even when they already exist. Test: `TestOpenStoreRestrictsExistingDirectory`.
 
-Release does not delete `resources/<lease-id>/`. The README says these snapshots remain for diagnosis. `compose.json` holds resolved Compose values, which can include secrets.
+Release does not delete `resources/<lease-id>/`. The [state and safety guide](guides/state-and-safety.md) says these snapshots remain for diagnosis. `compose.json` holds resolved Compose values, which can include secrets.
 
 ## Locking
 
@@ -158,7 +158,7 @@ Cloned hosts must have distinct OS identities. dibs does not generate or modify 
 4. **Every mutation happens under the lock.** Load, change, and `Save` happen between `openStore` and `Close` in one process.
 5. **State stays private.** The directory is `0700`, and files are `0600`. Test: `TestOpenStoreRestrictsExistingDirectory`.
 6. **State is local to one host and one Unix user.** Leases carry a stable `machine`, and other hosts never act on them. Do not share the directory over a network filesystem.
-7. **Format changes are contract changes.** `validate` accepts versions 1 to 4, with version 3 used only while a protected lease exists and version 4 only while a keyed or pending lease exists. A new field, a renamed field, a new adapter name, or a new version changes what older binaries accept. Older binaries reject version 2, so a version 2 file needs a compatible binary for every invocation, as the README states. Binaries that record `writer_version` refuse any newer version with an upgrade hint instead of a bare format error.
+7. **Format changes are contract changes.** `validate` accepts versions 1 to 4, with version 3 used only while a protected lease exists and version 4 only while a keyed or pending lease exists. A new field, a renamed field, a new adapter name, or a new version changes what older binaries accept. Older binaries reject version 2, so a version 2 file needs a compatible binary for every invocation, as the [state and safety guide](guides/state-and-safety.md) states. Binaries that record `writer_version` refuse any newer version with an upgrade hint instead of a bare format error.
 8. **Resource files stay inside their state directory.** Each adapter's `Validate` checks its file with `SnapshotMatches` (`internal/adapter/snapshot.go`), which accepts the legacy `berth` root only when it resolves to the same ledger.
 
 ## Planned

@@ -101,7 +101,7 @@ The CLI accepts the berth names that existing installs use. The complete list is
 
 ## Exit codes
 
-The `exitCodes` constant in `internal/cli/help.go` is the contract. The README repeats it as the AXI exit-code table, and [ADR 0007](adr/0007-output-modes-and-job-results.md) records why.
+The `exitCodes` constant in `internal/cli/help.go` is the contract. The [command reference](guides/command-reference.md) repeats it as the AXI exit-code table, and [ADR 0007](adr/0007-output-modes-and-job-results.md) records why.
 
 | Code | Meaning |
 | --- | --- |
@@ -131,7 +131,7 @@ Tests: `TestJobsRealProcesses` subtests "exit codes and transparent argv", "wait
 
 1. **The exit-code contract is stable.** Codes 0, 1, 2, 3, 75, 76, 124, 125, 126, and `128 + signal` keep their meanings. Changing one breaks every caller that branches on it.
 2. **Usage errors happen before state access.** A usage error never reads or writes state, edits agent config, or runs a resource tool. Test: `TestCLIRejectsUsageBeforeStateAccess`.
-3. **The help text matches the behavior.** A change to flags, defaults, or exit codes updates `commandHelp` or `exitCodes`, the README, and the matching doc in `docs/`.
+3. **The help text matches the behavior.** A change to flags, defaults, or exit codes updates `commandHelp` or `exitCodes`, the matching guide in `docs/guides/`, and the matching doc in `docs/`.
 4. **No prompts.** `release` and `sweep` are previews unless `--confirm` is set.
 5. **New behavior is opt-in.** `AGENTS.md` requires a named setting in the user config or a `DIBS_*` variable, with no change when the setting is absent.
 6. **Package layering is enforced.** `TestPackageGraph` fails on an unreviewed package or a forbidden import edge, and the root package holds only `main.go`.
