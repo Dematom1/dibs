@@ -53,6 +53,65 @@ func hasRun(job any, command string) bool {
 	return false
 }
 
+func installsPackage(run, packageName string) bool {
+	for _, command := range strings.FieldsFunc(run, func(r rune) bool { return r == '\n' || r == '&' || r == '|' || r == ';' }) {
+		fields := strings.Fields(strings.TrimSpace(command))
+		for i, field := range fields {
+			if strings.HasPrefix(field, "#") {
+				fields = fields[:i]
+				break
+			}
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] == "sudo" {
+			fields = fields[1:]
+		}
+		if len(fields) < 3 || (fields[0] != "apt" && fields[0] != "apt-get") {
+			continue
+		}
+		install := -1
+		for i, field := range fields[1:] {
+			if field == "install" {
+				install = i + 1
+				break
+			}
+		}
+		if install < 0 {
+			continue
+		}
+		for _, field := range fields[install+1:] {
+			if field == packageName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestInstallsPackage(t *testing.T) {
+	for _, tc := range []struct {
+		name, run string
+		want      bool
+	}{
+		{"apt-get package", "sudo apt-get install -y --no-install-recommends tmux", true},
+		{"apt package", "apt install tmux", true},
+		{"unrelated commands", "echo apt-get install; echo tmux", false},
+		{"comment", "# sudo apt-get install tmux", false},
+		{"inline comment", "sudo apt-get install -y # tmux", false},
+		{"package in another command", "sudo apt-get install -y git && echo tmux", false},
+		{"not exact package", "sudo apt-get install tmux-tools", false},
+		{"update is not install", "sudo apt-get update tmux", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := installsPackage(tc.run, "tmux"); got != tc.want {
+				t.Fatalf("installsPackage(%q) = %v, want %v", tc.run, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowActionPinsAndTrustBoundaries(t *testing.T) {
 	paths, err := filepath.Glob(".github/workflows/*.y*ml")
 	if err != nil || len(paths) == 0 {
@@ -141,17 +200,7 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 		if install >= 0 && path > install {
 			treehouseInstall = i
 		}
-		fields := strings.Fields(run)
-		aptInstall, tmuxPackage := false, false
-		for j, field := range fields {
-			if field == "apt-get" && j+1 < len(fields) && fields[j+1] == "install" {
-				aptInstall = true
-			}
-			if field == "tmux" {
-				tmuxPackage = true
-			}
-		}
-		if aptInstall && tmuxPackage {
+		if tmuxInstall < 0 && installsPackage(run, "tmux") {
 			tmuxInstall = i
 		}
 		if run == "just integration" {

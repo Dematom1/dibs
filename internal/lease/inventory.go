@@ -173,7 +173,7 @@ func sameTerminalLease(ctx context.Context, s *store, d adapterpkg.Definition, r
 	for _, id := range s.IDs() {
 		l := s.Leases[id]
 		pin := l.ResourceRef.Terminal
-		if pin == nil || l.ResourceRef.Adapter != r.Resource.Adapter || l.ResourceRef.Name != r.Resource.Name || pin.Server != r.Resource.Terminal.Server || !sameOwner(l.Owner, r.Owner) || !now.Before(l.Expires) {
+		if l.Releasing != nil || pin == nil || l.ResourceRef.Adapter != r.Resource.Adapter || l.ResourceRef.Name != r.Resource.Name || pin.Server != r.Resource.Terminal.Server || !sameOwner(l.Owner, r.Owner) || !now.Before(l.Expires) {
 			continue
 		}
 		rows, err := d.Discover(ctx, r.Resource)

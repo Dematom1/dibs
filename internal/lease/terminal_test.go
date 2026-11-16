@@ -54,6 +54,12 @@ func TestTerminalAdoptionIsScopedToItsServer(t *testing.T) {
 	if again, existing, err := m.Adopt(ctx, AdoptRequest{Owner: o, TTL: 2 * time.Hour, Resource: pane("/a")}); err != nil || !existing || again.ID != l.ID || !again.Expires.Equal(l.Expires) {
 		t.Fatalf("a same-owner retry must return the existing lease unchanged: %+v %v %v", again, existing, err)
 	}
+	when := time.Now()
+	l.Releasing = &when
+	d, _ = m.options.Adapters.Lookup("fake")
+	if _, ok := sameTerminalLease(ctx, &store{Leases: map[string]Lease{l.ID: l}}, d, AdoptRequest{Owner: o, Resource: pane("/a")}, when); ok {
+		t.Fatal("retry returned a terminal lease whose cleanup is in progress")
+	}
 	other, err := bindOwner("pid:"+strconv.Itoa(os.Getppid()), time.Minute, time.Now())
 	if err != nil {
 		t.Fatal(err)
