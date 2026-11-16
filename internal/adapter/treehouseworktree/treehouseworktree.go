@@ -1,6 +1,6 @@
 // Package treehouseworktree leases one pooled treehouse worktree slot through
 // treehouse's own durable lease token. Treehouse keeps allocation and reset;
-// dibs adds owner, expiry and reclaim, and never discards unlanded work.
+// dibs adds owner, expiry and reclaim, and retains unlanded work by default.
 package treehouseworktree
 
 import (
