@@ -62,6 +62,7 @@ dibs uses the XDG path on macOS too. The legacy fallback never moves or rewrites
 | `pr_owner` | boolean | Registers the `pr` owner kind. See the README |
 | `live_owner_protection` | boolean | Allows `--protect-live-owner` on `create` and `adopt`. See [Live-owner protection](leases.md#live-owner-protection) |
 | `consumer_contract` | boolean | Turns on consumer contract 1: `--pending` and `--key`, `reconcile`, `reclaim`, `explain`, and the contract output and exit codes of `extend` and `release`. See [Consumer contract](consumer-contract.md) |
+| `treehouse_worktree_adapter` | boolean | Allows new `treehouse-worktree` leases. See [Adapters](adapters.md#treehouse-worktree) |
 
 `Config.Available` returns the usable budget: `cores - room_cores` cores and `memory - room_memory` bytes. It refuses a budget with non-positive totals, or owner room that is not below the totals.
 
@@ -92,6 +93,8 @@ A memory string is a non-negative integer with an optional unit: `GiB`, `MiB`, `
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR` | `runSetup` | Agent config directories. See [Agent hooks](hooks.md). |
 | `XDG_CONFIG_HOME`, `XDG_STATE_HOME` | `Load`, `runSetup`, `resolveStateDir` | Base directories |
 | `DOCKER_HOST` | Docker-backed adapters | Must be unset. Managed adapters refuse it. |
+| `DIBS_PR_OWNER`, `DIBS_TREEHOUSE_WORKTREE` | `newOwners`, `newAdapters` | Booleans that override the matching config opt-in either way. No `BERTH_*` alias. |
+| `TREEHOUSE_ROOT` | `treehouse-worktree` create and adopt | Pinned on the lease when set, then passed as `--root`; later calls clear it |
 | `DIBS_LEASE` (and `BERTH_LEASE`) | Set by `startJob` | Lease ID, exported to the job child |
 
 The `DIBS_*` name wins whenever it is set, even when empty. `internal/compat/env.go` reads the legacy `BERTH_*` name only when the new one is unset. Each legacy name in use prints one warning on stderr.
@@ -106,4 +109,4 @@ The `DIBS_*` name wins whenever it is set, even when empty. `internal/compat/env
 
 ## Planned
 
-The approved direction in [VISION.md](../VISION.md) makes every optional capability opt-in through a named setting in this user config. No such setting beyond the budget, classes, and machines above exists today.
+The approved direction in [VISION.md](../VISION.md) makes every optional capability opt-in through a named setting in this user config. `pr_owner` and `treehouse_worktree_adapter` are the settings that exist today.

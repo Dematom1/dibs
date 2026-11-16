@@ -119,7 +119,9 @@ func TestPolicyTableOnCreateAndExplain(t *testing.T) {
 
 type policyShell struct{ destroyed *bool }
 
-func (p policyShell) Create(context.Context, adapterpkg.Target) error { return nil }
+func (p policyShell) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {
+	return t.Ref, nil
+}
 func (p policyShell) Destroy(context.Context, adapterpkg.Target) error {
 	*p.destroyed = true
 	return nil

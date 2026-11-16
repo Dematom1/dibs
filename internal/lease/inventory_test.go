@@ -130,7 +130,7 @@ func TestAdoptRefusalsAndDurability(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer s.Close()
-			result := sweep(ctx, s, l.Machine, l.Expires.Add(time.Second), false, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Unknown }, m.options.Adapters)
+			result, _ := sweep(ctx, s, l.Machine, l.Expires.Add(time.Second), false, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Unknown }, m.options.Adapters)
 			if len(result.Eligible) != 1 || len(s.Leases) != 1 {
 				t.Fatalf("preview changed adopted lease: %+v", result)
 			}

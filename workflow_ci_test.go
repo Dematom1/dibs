@@ -117,6 +117,36 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 	} {
 		require(t, hasRun(pair.job, pair.command), "missing CI command: "+pair.command)
 	}
+	steps := list(object(integration)["steps"])
+	treehouseInstall, integrationRun := -1, -1
+	for i, raw := range steps {
+		step := object(raw)
+		run, _ := step["run"].(string)
+		var commands []string
+		for _, line := range strings.Split(run, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				commands = append(commands, line)
+			}
+		}
+		install, path := -1, -1
+		for j, command := range commands {
+			if command == "go install github.com/kunchenguid/treehouse/v3@v3.1.5" {
+				install = j
+			}
+			if command == `echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"` {
+				path = j
+			}
+		}
+		if install >= 0 && path > install {
+			treehouseInstall = i
+		}
+		if run == "just integration" {
+			integrationRun = i
+		}
+	}
+	require(t, treehouseInstall >= 0 && integrationRun > treehouseInstall,
+		"integration must install pinned treehouse, add GOPATH/bin to PATH, then run integration")
 	required := object(jobs["main-required-ci"])
 	gotNeeds := map[any]bool{}
 	for _, need := range list(required["needs"]) {

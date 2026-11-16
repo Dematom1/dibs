@@ -14,7 +14,7 @@ The restructure direction places the contracts in `internal/adapter` and `intern
 
 Additions follow the behavior-preserving restructure in separate slices. First comes the conformance kit and the explicit contracts, then an exec adapter and an exec owner driven by local files, then out-of-process plugins named `dibs-adapter-<name>` and `dibs-owner-<name>` on PATH with a small versioned JSON protocol over stdin and stdout and a community catalog. Calls have timeouts, path or checksum pinning is optional, and arguments and logs must not expose secrets.
 
-Built-ins require widespread use and CI-testable behavior, with issue-first review. Kind, k3d, Compose, and Docker are the approved built-in category, not a claim that a standalone Docker adapter exists today. Other integrations use exec or cataloged plugins. State-schema migrations, a stable CLI and AXI contract, semver, and a deprecation policy are part of the approved stability direction.
+Built-ins require widespread use, or dogfooding by the maintainers' own fleet, and CI-testable behavior, with issue-first review. Kind, k3d, Compose, and Docker are the approved built-in category, not a claim that a standalone Docker adapter exists today. Other integrations use exec or cataloged plugins. State-schema migrations, a stable CLI and AXI contract, semver, and a deprecation policy are part of the approved stability direction.
 
 ## Current implementation limits
 

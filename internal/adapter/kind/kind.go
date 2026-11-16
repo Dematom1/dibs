@@ -12,9 +12,9 @@ import (
 
 type kindAdapter struct{ run adapterpkg.CommandRunner }
 
-func (a kindAdapter) Create(ctx context.Context, l adapterpkg.Target) error {
+func (a kindAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
 	_, err := a.run(ctx, adapterpkg.DockerEnv(l.Ref), "kind", "create", "cluster", "--name", l.Ref.Name, "--kubeconfig", l.Ref.File, "--wait", "120s")
-	return err
+	return l.Ref, err
 }
 
 func (a kindAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {

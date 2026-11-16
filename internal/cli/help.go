@@ -4,6 +4,8 @@ import (
 	"io"
 	"strings"
 
+	treehousepkg "github.com/Dematom1/dibs/internal/adapter/treehouseworktree"
+
 	outputpkg "github.com/Dematom1/dibs/internal/output"
 )
 
@@ -23,7 +25,8 @@ exit 0 success with status; 1 operation failed, records retained; 2 usage;
 3 refusal, nothing changed, with a stable reason: not_found, wrong_machine,
 not_pending, already_leased, key_conflict, handle_exists, handle_mismatch,
 resource_absent, resource_unknown, ambiguous, owner_alive, owner_unknown,
-expired, owner_dead, job_deadline, max_lifetime, grace, resource_busy.
+expired, owner_dead, job_deadline, max_lifetime, grace, resource_busy,
+cleanup_in_progress, unlanded_work.
 Extend success is renewed or reattached.
 Exit 1 is only for operation failures. Output carries contract: 1.
 See docs/consumer-contract.md.`
@@ -250,6 +253,24 @@ Examples:
   dibs job --class suite --wait 0 -- just check`,
 }
 
+var worktreeHelp = map[string]string{
+	"adopt": `dibs adopt treehouse-worktree <slot-path> --lease-id ID --owner KIND:ID --ttl D
+  [--landed-exclude-remote NAME ...] [--key K] [--protect-live-owner]
+  [--idle D] [--max-lifetime D]
+registers a slot treehouse already leased durably, verified by its exact token.
+  dibs adopt treehouse-worktree /pool/app-1a2b/3/app --lease-id <token> --owner pid:1234 --ttl 8h`,
+	"create": `treehouse-worktree: [--repo DIR (default .)] [--landed-exclude-remote NAME ...]
+leases a treehouse pool slot (lease.path) and returns it only after its work
+landed on a remote; unlanded work keeps the lease.
+  dibs create --adapter treehouse-worktree --repo ~/src/app --ttl 8h`,
+	"release": `[--discard-unlanded] with --confirm discards uncommitted or unpushed work in
+a treehouse-worktree slot. It never terminates running processes; stop them first.
+Without it, unlanded work blocks release (exit 3, reason unlanded_work, with the
+consumer contract on). Sweep and reclaim never discard.`,
+	"extend": `A treehouse-worktree lease whose cleanup started is refused until release
+finishes it (cleanup_in_progress; exit 3 with the consumer contract on).`,
+}
+
 func help(command string) string {
 	body, ok := commandHelp[command]
 	if !ok {
@@ -268,7 +289,12 @@ Examples:
   dibs sweep --confirm
 Run dibs <command> --help for command flags.`
 	}
-	body = strings.ReplaceAll(body, "{{adapters}}", strings.Join(newAdapters().CreateNames(), "|"))
+	adapters := newAdapters()
+	body = strings.ReplaceAll(body, "{{adapters}}", strings.Join(adapters.CreateNames(), "|"))
+	// Opt-in help appears only once the adapter is on, so default help bytes stay unchanged.
+	if d, _ := adapters.Lookup(treehousepkg.Name); d.CreateAllowed && worktreeHelp[command] != "" {
+		body += "\n" + worktreeHelp[command]
+	}
 	if command == "create" || command == "extend" {
 		body += "\n\n" + cadence
 	}

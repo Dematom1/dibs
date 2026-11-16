@@ -12,6 +12,7 @@ import (
 	kindpkg "github.com/Dematom1/dibs/internal/adapter/kind"
 	nonepkg "github.com/Dematom1/dibs/internal/adapter/none"
 	shellpkg "github.com/Dematom1/dibs/internal/adapter/shell"
+	treehousepkg "github.com/Dematom1/dibs/internal/adapter/treehouseworktree"
 	configpkg "github.com/Dematom1/dibs/internal/config"
 	leasepkg "github.com/Dematom1/dibs/internal/lease"
 	policypkg "github.com/Dematom1/dibs/internal/policy"
@@ -21,7 +22,8 @@ import (
 // can be released; opt-ins gate only how new leases enter.
 func newAdapters() adapterpkg.Registry {
 	shell := shellpkg.New(shellpkg.Options{List: shellpkg.PS, Grace: 5 * time.Second, Log: os.Stderr, Self: os.Getpid(), TTYTimes: shellpkg.TTYTimes})
-	return adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand), shell)
+	treehouse := treehousepkg.New(adapterpkg.RunCommandIn, optedIn("DIBS_TREEHOUSE_WORKTREE", configpkg.TreehouseWorktree))
+	return adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand), shell, treehouse)
 }
 
 // ownerKinds are every kind a policy row may name, whether or not its opt-in is on.

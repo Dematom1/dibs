@@ -29,14 +29,15 @@ func (r *Refusal) Error() string {
 	message := r.Message
 	if message == "" {
 		message = map[string]string{
-			OwnerDead:       "renew refused: the lease owner is dead; the lease is retained for reclaim",
-			OwnerUnknown:    "renew refused: the lease owner cannot be verified; the lease is retained and not reclaimable",
-			ResourceAbsent:  "renew refused: the expired lease's resource is gone; the lease is retained",
-			ResourceUnknown: "renew refused: the expired lease's resource cannot be verified; the lease is retained",
-			"wrong_machine": "run dibs extend on the lease's machine",
-			"job_deadline":  "job deadlines cannot be extended; start a new dibs job with --timeout",
-			"expired":       "lease is expired; release it and acquire again",
-			MaxLifetime:     "renew refused: the lease reached its policy's maximum lifetime; release it and acquire again",
+			OwnerDead:         "renew refused: the lease owner is dead; the lease is retained for reclaim",
+			OwnerUnknown:      "renew refused: the lease owner cannot be verified; the lease is retained and not reclaimable",
+			ResourceAbsent:    "renew refused: the expired lease's resource is gone; the lease is retained",
+			ResourceUnknown:   "renew refused: the expired lease's resource cannot be verified; the lease is retained",
+			"wrong_machine":   "run dibs extend on the lease's machine",
+			"job_deadline":    "job deadlines cannot be extended; start a new dibs job with --timeout",
+			"expired":         "lease is expired; release it and acquire again",
+			MaxLifetime:       "renew refused: the lease reached its policy's maximum lifetime; release it and acquire again",
+			CleanupInProgress: "renew refused: cleanup is in progress; release or sweep retries it, and the lease is retained until it succeeds",
 		}[r.Reason]
 	}
 	if r.Cause != nil {
@@ -447,7 +448,16 @@ func (m *Manager) Reclaim(ctx context.Context, id string, confirm bool) (Reclaim
 	if !confirm {
 		return ReclaimResult{ID: id, Status: "preview", Liveness: live}, nil
 	}
-	if _, err := releaseLease(ctx, s, id, host, m.options.Adapters); err != nil {
+	if m.cleansUpOutsideLock(l) {
+		c, err := markReleasing(s, l)
+		s.Close()
+		if err == nil {
+			_, err = m.releaseOutsideLock(ctx, c, false)
+		}
+		if err != nil {
+			return ReclaimResult{}, err
+		}
+	} else if _, err := releaseLease(ctx, s, id, host, m.options.Adapters); err != nil {
 		return ReclaimResult{}, err
 	}
 	return ReclaimResult{ID: id, Status: "reclaimed", Liveness: live}, nil

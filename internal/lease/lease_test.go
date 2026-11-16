@@ -184,7 +184,7 @@ func TestProtectedSweepSurvivesSupervisorOutage(t *testing.T) {
 		l.ProtectLiveOwner = true
 		s.Leases[l.ID] = l
 		check := func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return live }
-		r := sweep(context.Background(), s, l.Machine, testNow.Add(24*time.Hour), true, check, testAdapters())
+		r, _ := sweep(context.Background(), s, l.Machine, testNow.Add(24*time.Hour), true, check, testAdapters())
 		if len(s.Leases) != 1 || len(r.Eligible) != 0 {
 			t.Fatalf("live=%s: expired protected lease was reclaimed: %+v", live, r)
 		}
@@ -193,7 +193,7 @@ func TestProtectedSweepSurvivesSupervisorOutage(t *testing.T) {
 	l := testLease(t)
 	l.ProtectLiveOwner = true
 	s.Leases[l.ID] = l
-	r := sweep(context.Background(), s, l.Machine, testNow, true, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Dead }, testAdapters())
+	r, _ := sweep(context.Background(), s, l.Machine, testNow, true, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Dead }, testAdapters())
 	if len(s.Leases) != 0 || len(r.Reclaimed) != 1 {
 		t.Fatalf("dead owner's protected lease was not reclaimed: %+v", r)
 	}
@@ -261,7 +261,9 @@ func leaseJSON(t *testing.T, l Lease) string {
 
 type failingAdapter struct{}
 
-func (failingAdapter) Create(context.Context, adapterpkg.Target) error { return nil }
+func (failingAdapter) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {
+	return t.Ref, nil
+}
 
 func (failingAdapter) Destroy(context.Context, adapterpkg.Target) error {
 	return errors.New("unreachable engine")
@@ -275,19 +277,19 @@ func TestSweepPreviewRetryAndIdempotence(t *testing.T) {
 		t.Fatal(err)
 	}
 	dead := func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Dead }
-	r := sweep(context.Background(), s, l.Machine, testNow, false, dead, testAdapters())
+	r, _ := sweep(context.Background(), s, l.Machine, testNow, false, dead, testAdapters())
 	if len(r.Eligible) != 1 || len(s.Leases) != 1 || len(r.Reclaimed) != 0 {
 		t.Fatalf("preview mutated state: %+v", r)
 	}
-	r = sweep(context.Background(), s, l.Machine, testNow, true, dead, adapterpkg.NewRegistry(adapterpkg.Definition{Name: "none", Adapter: failingAdapter{}, Prepare: nonepkg.New().Prepare, Validate: nonepkg.New().Validate, Env: nonepkg.New().Env}))
+	r, _ = sweep(context.Background(), s, l.Machine, testNow, true, dead, adapterpkg.NewRegistry(adapterpkg.Definition{Name: "none", Adapter: failingAdapter{}, Prepare: nonepkg.New().Prepare, Validate: nonepkg.New().Validate, Env: nonepkg.New().Env}))
 	if len(r.Failures) != 1 || len(s.Leases) != 1 {
 		t.Fatalf("failed cleanup lost its lease: %+v", r)
 	}
-	r = sweep(context.Background(), s, l.Machine, testNow, true, dead, testAdapters())
+	r, _ = sweep(context.Background(), s, l.Machine, testNow, true, dead, testAdapters())
 	if len(r.Reclaimed) != 1 || len(s.Leases) != 0 {
 		t.Fatalf("retry did not converge: %+v", r)
 	}
-	r = sweep(context.Background(), s, l.Machine, testNow, true, dead, testAdapters())
+	r, _ = sweep(context.Background(), s, l.Machine, testNow, true, dead, testAdapters())
 	if len(r.Reclaimed) != 0 || len(r.Failures) != 0 {
 		t.Fatalf("second sweep not a no-op: %+v", r)
 	}

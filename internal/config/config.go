@@ -46,6 +46,8 @@ type Config struct {
 	// LeasePolicies turns on the lease policy table; Policies overrides its rows.
 	LeasePolicies bool                     `json:"lease_policies"`
 	Policies      map[string]policypkg.Row `json:"policies"`
+	// TreehouseWorktree allows new treehouse-worktree leases.
+	TreehouseWorktree bool `json:"treehouse_worktree_adapter"`
 }
 
 func hostMemory() (int64, error) {
@@ -179,6 +181,7 @@ type optIns struct {
 	ExecOwner           bool `json:"exec_owner"`
 	ShellAdapter        bool `json:"shell_adapter"`
 	LeasePolicies       bool `json:"lease_policies"`
+	TreehouseWorktree   bool `json:"treehouse_worktree_adapter"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -208,6 +211,9 @@ func ShellAdapter() bool { return readOptIns().ShellAdapter }
 
 // LeasePolicies reports the lease_policies opt-in.
 func LeasePolicies() bool { return readOptIns().LeasePolicies }
+
+// TreehouseWorktree reports the treehouse_worktree_adapter opt-in.
+func TreehouseWorktree() bool { return readOptIns().TreehouseWorktree }
 
 // Policies strictly reads the configured policy rows without probing the host,
 // so a malformed table is an error rather than a silent default.

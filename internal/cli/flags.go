@@ -20,6 +20,15 @@ func (l labelsFlag) Set(s string) error {
 	return nil
 }
 
+type listFlag []string
+
+func (l *listFlag) String() string { return strings.Join(*l, ",") }
+
+func (l *listFlag) Set(s string) error {
+	*l = append(*l, s)
+	return nil
+}
+
 // Standard flag parsing, with positional arguments moved after flag values so
 // both `extend ID --ttl 1h` and `extend --ttl 1h ID` have the same meaning.
 func parseFlags(fs *flag.FlagSet, args []string) error {

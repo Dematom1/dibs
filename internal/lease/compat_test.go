@@ -116,7 +116,7 @@ func TestStateRenameKeepsLegacyLeasesAndLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := sweep(context.Background(), s, host, testNow.Add(time.Hour), true, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Alive }, adapterpkg.NewRegistry(compatAdapter("kind"), compatAdapter("k3d"), compatAdapter("compose")))
+	r, _ := sweep(context.Background(), s, host, testNow.Add(time.Hour), true, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Alive }, adapterpkg.NewRegistry(compatAdapter("kind"), compatAdapter("k3d"), compatAdapter("compose")))
 	if len(r.Reclaimed) != 3 || len(s.Leases) != 0 {
 		t.Fatalf("old leases no longer reclaimable: %+v", r)
 	}

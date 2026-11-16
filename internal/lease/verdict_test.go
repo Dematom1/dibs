@@ -145,16 +145,16 @@ func TestSweepHoldsAndGraceClock(t *testing.T) {
 		t.Fatalf("policy lease saved as version %d: %v", s.Version, err)
 	}
 	dead := func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Dead }
-	if r := sweep(ctx, s, l.Machine, testNow, false, dead, testAdapters()); r.Held[l.ID] != HoldGrace || s.Leases[l.ID].DeadSince != nil {
+	if r, _ := sweep(ctx, s, l.Machine, testNow, false, dead, testAdapters()); r.Held[l.ID] != HoldGrace || s.Leases[l.ID].DeadSince != nil {
 		t.Fatalf("preview started the grace clock or acted: %+v %+v", r, s.Leases[l.ID])
 	}
-	if r := sweep(ctx, s, l.Machine, testNow, true, dead, testAdapters()); r.Held[l.ID] != HoldGrace || s.Leases[l.ID].DeadSince == nil {
+	if r, _ := sweep(ctx, s, l.Machine, testNow, true, dead, testAdapters()); r.Held[l.ID] != HoldGrace || s.Leases[l.ID].DeadSince == nil {
 		t.Fatalf("first confirmed sweep: %+v", r)
 	}
-	if r := sweep(ctx, s, l.Machine, testNow.Add(30*time.Second), true, dead, testAdapters()); len(r.Reclaimed) != 0 {
+	if r, _ := sweep(ctx, s, l.Machine, testNow.Add(30*time.Second), true, dead, testAdapters()); len(r.Reclaimed) != 0 {
 		t.Fatalf("reclaimed inside grace: %+v", r)
 	}
-	if r := sweep(ctx, s, l.Machine, testNow.Add(time.Minute), true, dead, testAdapters()); len(r.Reclaimed) != 1 {
+	if r, _ := sweep(ctx, s, l.Machine, testNow.Add(time.Minute), true, dead, testAdapters()); len(r.Reclaimed) != 1 {
 		t.Fatalf("not reclaimed after grace: %+v", r)
 	}
 	if err := s.Save(); err != nil || s.Version != 2 {

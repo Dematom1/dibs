@@ -10,8 +10,11 @@ import (
 	policypkg "github.com/Dematom1/dibs/internal/policy"
 	remotepkg "github.com/Dematom1/dibs/internal/remote"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
+
+	treehousepkg "github.com/Dematom1/dibs/internal/adapter/treehouseworktree"
 )
 
 func adoptionCommand(row map[string]any) string {
@@ -26,6 +29,50 @@ func adoptionCommand(row map[string]any) string {
 	}
 	return command + " --owner '<owner>' --ttl '<duration>'"
 }
+
+type verifiedAdoption struct {
+	owner, claim, key, pending, context, file string
+	protect                                   bool
+	stale, ttl, idle, maxLifetime             time.Duration
+	excluded                                  []string
+}
+
+// adoptVerified registers a resource whose adapter verifies adoption itself;
+// it needs no Docker context and has no discovery, so --pending does not apply.
+func (app application) adoptVerified(ctx context.Context, d adapterpkg.Definition, fs *flag.FlagSet, out io.Writer, mode outputpkg.Mode, a verifiedAdoption) int {
+	if !d.VerifiesAdoption {
+		return outputpkg.Error(out, mode, 2, "the "+d.Name+" adapter is off; enable it with "+d.OptIn, help("adopt"))
+	}
+	path := fs.Arg(1)
+	// With lease policies on, the policy row supplies the TTL.
+	if fs.NArg() != 2 || !filepath.IsAbs(path) || filepath.Clean(path) != path || a.claim == "" || a.owner == "" || a.ttl < 0 || (a.ttl == 0 && !leasePoliciesEnabled()) || a.context != "" || a.file != "" || a.pending != "" {
+		return outputpkg.Error(out, mode, 2, "require "+d.Name+", an absolute clean slot path, --lease-id, explicit --owner and positive --ttl; --context, --file and --pending do not apply", help("adopt"))
+	}
+	for _, remote := range a.excluded {
+		if !treehousepkg.ValidRemote(remote) {
+			return outputpkg.Error(out, mode, 2, "--landed-exclude-remote needs a plain git remote name", help("adopt"))
+		}
+	}
+	if a.key != "" && !consumerContractEnabled() {
+		return outputpkg.Error(out, mode, 2, consumerContractOff, help("adopt"))
+	}
+	if a.protect && !liveOwnerProtectionEnabled() {
+		return outputpkg.Error(out, mode, 2, liveOwnerProtectionOff, help("adopt"))
+	}
+	if a.key != "" && !leasepkg.ValidKey(a.key) {
+		return outputpkg.Error(out, mode, 2, keyRule, help("adopt"))
+	}
+	owner, err := app.owners.Bind(ctx, a.owner, a.stale, time.Now().UTC())
+	if err != nil {
+		return outputpkg.Error(out, mode, 2, err.Error(), help("adopt"))
+	}
+	policy, ttl, err := app.leasePolicy(d.Name, owner.Kind, a.ttl, a.ttl > 0, a.idle, a.maxLifetime)
+	if err != nil {
+		return outputpkg.Error(out, mode, 2, err.Error(), help("adopt"))
+	}
+	return app.adopt(ctx, out, mode, leasepkg.AdoptRequest{Owner: owner, TTL: ttl, Resource: adapterpkg.ResourceRef{Adapter: d.Name, Path: path, Claim: a.claim}, ExcludeRemotes: a.excluded, Key: a.key, ProtectLiveOwner: a.protect, Policy: policy}, a.key != "")
+}
+
 func (app application) runInventory(ctx context.Context, command string, args []string, out io.Writer, mode outputpkg.Mode) int {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -33,9 +80,10 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	full := fs.Bool("full", false, "complete AXI lease record")
 	outputpkg.Flags(fs, &mode)
 	contextName := fs.String("context", "", "Docker context (default selected context)")
-	var owner, file, key, pending string
+	var owner, file, key, pending, claim string
 	var protect bool
 	var ttl, idle, maxLifetime time.Duration
+	var excluded listFlag
 	stale := 15 * time.Minute
 	if command == "adopt" {
 		fs.StringVar(&owner, "owner", "", "required named owner")
@@ -47,6 +95,8 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		fs.BoolVar(&protect, "protect-live-owner", false, "reclaim only on proven owner death")
 		fs.DurationVar(&idle, "idle", 0, "tighter policy idle timeout")
 		fs.DurationVar(&maxLifetime, "max-lifetime", 0, "tighter policy maximum lifetime")
+		fs.StringVar(&claim, "lease-id", "", "treehouse lease_id of a durably leased slot")
+		fs.Var(&excluded, "landed-exclude-remote", "remote whose refs do not count as landed (repeatable)")
 	}
 	if err := parseFlags(fs, args); err != nil {
 		return outputpkg.Error(out, mode, 2, err.Error(), help(command))
@@ -58,6 +108,12 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	out = &outputpkg.Writer{Writer: out, Mode: mode.Effective(out), Full: *full, FullCommand: "dibs --axi ps --full"}
 	var parsedOwner ownerpkg.Reference
 	var leasePolicy *policypkg.Policy
+	if d, known := app.resources.Lookup(fs.Arg(0)); command == "adopt" && known && d.Name == treehousepkg.Name {
+		return app.adoptVerified(ctx, d, fs, out, mode, verifiedAdoption{owner: owner, claim: claim, key: key, pending: pending, context: *contextName, file: file, protect: protect, stale: stale, ttl: ttl, idle: idle, maxLifetime: maxLifetime, excluded: excluded})
+	}
+	if command == "adopt" && (claim != "" || len(excluded) > 0) {
+		return outputpkg.Error(out, mode, 2, "--lease-id and --landed-exclude-remote apply only to "+treehousepkg.Name, help(command))
+	}
 	if command == "adopt" {
 		d, known := app.resources.Lookup(fs.Arg(0))
 		if (pending != "" || key != "") && !consumerContractEnabled() {
@@ -129,7 +185,11 @@ func (app application) adopt(ctx context.Context, out io.Writer, mode outputpkg.
 		live = app.owners.Check(ctx, l.Owner, time.Now().UTC()).Liveness
 	}
 	kube := kubeconfigFor(app.resources, l)
-	result := map[string]any{"lease": outputpkg.LeaseView(l, live, l.Created, kube), "record": outputpkg.LeaseRecord(l, kube), "help": []string{"Run dibs release " + l.ID + " to preview cleanup"}}
+	next := []string{"Run dibs release " + l.ID + " to preview cleanup"}
+	if path := l.ResourceRef.Path; path != "" {
+		next = append([]string{"Work in " + remotepkg.ShellQuote(path) + "; never run treehouse return on it, release the lease instead"}, next...)
+	}
+	result := map[string]any{"lease": outputpkg.LeaseView(l, live, l.Created, kube), "record": outputpkg.LeaseRecord(l, kube), "help": next}
 	if contract {
 		status := map[bool]string{false: "adopted", true: "bound"}[r.Pending != ""]
 		if done {

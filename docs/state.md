@@ -130,13 +130,18 @@ Cloned hosts must have distinct OS identities. dibs does not generate or modify 
 | `owner.kind`, `owner.id` | `owner.Reference` | See [Leases](leases.md#owner-kinds) |
 | `owner.start` | `Reference.Identity` | `pid` and `session` only. Omitted when empty. |
 | `owner.stale` | `Reference.Stale` | `heartbeat` only, in nanoseconds. Omitted when zero. |
-| `resource.adapter` | `ResourceRef.Adapter` | `none`, `kind`, `k3d`, `compose`, or `process` |
+| `resource.adapter` | `ResourceRef.Adapter` | `none`, `kind`, `k3d`, `compose`, `treehouse-worktree`, or `process` |
 | `resource.name` | `ResourceRef.Name` | Managed resource name. Omitted for `none` and `process`. |
 | `resource.adopted` | `ResourceRef.Adopted` | `true` for a resource taken over by `dibs adopt`. Version 2 only. |
 | `resource.docker_context` | `ResourceRef.Context` | Docker context captured at create |
 | `resource.docker_host` | `ResourceRef.DockerHost` | k3d and adopted resources: the endpoint of that context |
 | `resource.file` | `ResourceRef.File` | Private adapter file under `resources/<id>/` |
+| `resource.repo`, `resource.treehouse_root` | `ResourceRef.Repo`, `Root` | `treehouse-worktree`: pinned main checkout and, when set at create, the pool root |
+| `resource.path`, `resource.treehouse_lease_id` | `ResourceRef.Path`, `Claim` | `treehouse-worktree`: slot path and treehouse token. Both empty while a create is pending. |
+| `resource.treehouse_lease_holder` | `ResourceRef.Holder` | `dibs:<id>` for slots dibs allocated; empty for adopted slots |
+| `resource.landed_exclude_remotes` | `ResourceRef.ExcludeRemotes` | Remotes whose refs do not count as landed |
 | `job.budget.cores`, `job.budget.memory_bytes` | `budget.Amount` | Reserved cores and bytes |
+| `releasing` | `Lease.Releasing`, `*time.Time` | Outside-lock cleanup started; blocks renewal until release or sweep retries cleanup. An adapter refusal that touched nothing (unlanded work or running processes) restores the value it had before that attempt. Omitted otherwise. |
 | `job.class` | `ReservationView.Class` | Class name used for the request |
 | `job.leader` | `ReservationView.Leader` | `pid` owner of the process group leader. Empty until the child starts. |
 | `protect_live_owner` | `Lease.ProtectLiveOwner` | `true` for live-owner protection. Version 3 or later. Omitted when false. |

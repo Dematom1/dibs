@@ -105,7 +105,7 @@ func TestIntegrationAdoptAndOrphans(t *testing.T) {
 					t.Errorf("fixture cleanup failed: %v", err)
 				}
 			})
-			if err := d.Adapter.Create(ctx, fixture); err != nil {
+			if _, err := d.Adapter.Create(ctx, fixture); err != nil {
 				t.Fatal(err)
 			}
 			name := ref.Name

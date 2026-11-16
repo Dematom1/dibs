@@ -43,7 +43,7 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 | `list` | `budget`, `count`, `help`, `leases`, `records` |
 | `create` | `help`, `lease`, `record` |
 | `extend` | `help`, `lease`, `status` (`renewed` or `reattached`). A protected lease's refusal adds `id` and `reason` to the error keys and exits 3. |
-| `release` | `id`, `status` |
+| `release` | `id`, `status`. A release that a `treehouse-worktree` slot blocks exits 1 with `code`, `error`, `exit_code`, `help`, `id`, and `blockers` (`uncommitted`, `uncommitted_count`, `unpushed`, `unpushed_count`, each list holding at most ten items, and `processes`, each with `pid` and `name`). With the consumer contract on, the same response also carries `contract` and `reason: unlanded_work` and exits 3; `reclaim` reports it the same way. |
 | `extend` or `release` with the consumer contract on | The keys above, plus `contract` and `id`; `release` adds `help`, and its `status` is `preview`, `released`, or `already_done` |
 | `create` or `adopt` with `--key` or `--pending` | The keys above, plus `contract` and `status` |
 | `reconcile` | `contract`, `count`, `help`, `results`, `status`. Each result has `id`, `status`, `resource_adapter`, `resource_name`, `matches`, and `conflicts`. |
@@ -59,7 +59,7 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 
 Parts of the map:
 
-- `LeaseView` in `internal/output/view.go` builds every lease row with one fixed key set: `id`, `owner`, `liveness`, `machine`, `age`, `expires`, `resources`, `resource`, `resource_adapter`, `resource_name`, `labels`, `kubeconfig`, `cores`, `memory`, `memory_bytes`, and `class`, plus `protect_live_owner: true` only for a protected lease, `pending: true` only for a pending lease, and `key` only for a keyed lease, so other output keeps its shape. `liveness` is always `alive`, `dead`, or `unknown`; protection is shown by `protect_live_owner`, never inside `liveness`. `memory` is a string with a `B` suffix. Rows for non-job leases report zeros and an empty class.
+- `LeaseView` in `internal/output/view.go` builds every lease row with one fixed key set: `id`, `owner`, `liveness`, `machine`, `age`, `expires`, `resources`, `resource`, `resource_adapter`, `resource_name`, `labels`, `kubeconfig`, `cores`, `memory`, `memory_bytes`, and `class`, plus `protect_live_owner: true` only for a protected lease, `pending: true` only for a pending lease, `key` only for a keyed lease, and `path` only for a lease that records a worktree slot, so other output keeps its shape. `liveness` is always `alive`, `dead`, or `unknown`; protection is shown by `protect_live_owner`, never inside `liveness`. `memory` is a string with a `B` suffix. Rows for non-job leases report zeros and an empty class.
 - `LeaseRecord` in `internal/output/view.go` is the stored lease encoded to JSON and decoded back with `UseNumber`, plus `kubeconfig`. `protect_live_owner` appears only when true. See [State](state.md#format-version-2).
 - `BudgetView` reports `used_cores`, `used_memory_bytes`, `usable_cores`, `usable_memory_bytes`, `room_cores`, `room_memory_bytes`, and a one-line `summary`. If the config fails to load, `list` still succeeds, and `budget` holds only the summary `jobs: budget unavailable (check DIBS_CONFIG)`. Test: `TestBudgetSummary`, `TestBrokenBudgetStillLists`.
 
@@ -149,7 +149,7 @@ A golden diff in a pull request is a visible change to an output contract.
 1. **AXI output is byte-stable.** The same values produce the same bytes: sorted keys, fixed quoting, fixed limits, and the same hint text. A change to a key name, a key set, the compact field list, the limits, the quoting rules, or the layout is a contract change. It shows as a golden diff. Test: `TestAXIBoundedListsAndFull`.
 2. **JSON is complete.** JSON never truncates and includes every key the command sets, including the full records where a command sets them. Only AXI applies `axiView`.
 3. **Presentation never mutates data.** `axiView` copies. The canonical map stays intact for JSON and `--full`. Test: `TestAXIPresentationDoesNotMutate`.
-4. **Every table row has the same keys.** Build every row from one function, such as `LeaseView`. Optional lease keys are filled in for every compact AXI row by `axiView`.
+4. **Every table row has the same keys.** Build every row from one function, such as `LeaseView`. Optional lease keys are filled in for every compact AXI row by `axiView`. A table's columns are the union of its rows' keys, so an optional key that only a later row sets (such as `path` in `ps --full`) still gets a column, and rows without it print `null`. Test: `TestTOONTableColumnsCoverEveryRow`.
 5. **Views hold only rendered types.** Use `string`, `bool`, `int`, `int64`, `json.Number`, `[]string`, `map[string]string`, `map[string]any`, or `[]map[string]any`. Other types print `null` in AXI.
 6. **Errors are structured, on stdout, and carry `code` and `exit_code`.** Every error path goes through `Error` and returns a non-zero code.
 7. **Input cannot change the output structure.** Quoting keeps newlines, separators, and control characters inside one field. Test: `TestTOONQuotesKeysInEveryShape`.

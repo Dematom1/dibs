@@ -87,6 +87,11 @@ jobs:
           k3d version
           docker info
           docker compose version
+      - name: Install pinned treehouse for real worktree adapter integration
+        run: |
+          go install github.com/kunchenguid/treehouse/v3@v3.1.5
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/treehouse" --version
       - name: Verify demo Compose HTTP and Ready kind/k3d nodes
         run: .claude/skills/verify/verify.py adapters --evidence "$RUNNER_TEMP/verify/adapters"
       - name: Real kind, k3d, and Compose adapter integration

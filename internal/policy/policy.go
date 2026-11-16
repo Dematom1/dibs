@@ -61,6 +61,8 @@ func Defaults() map[string]Policy {
 		"k3d":     lab,
 		"compose": lab,
 		"shell":   {Binding: Hybrid, TTL: 8 * time.Hour, Idle: 30 * time.Minute, Action: Destroy},
+		// A worktree slot belongs to its task while the owner lives; cleanup never discards unlanded work.
+		"treehouse-worktree": {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
 	}
 	for key, p := range rows {
 		p.Row = key

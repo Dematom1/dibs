@@ -6,7 +6,7 @@ Read `VISION.md` first; it is the accept/resist test for every change.
 ## Rules for changes
 
 - Dibs owns only the lease lifecycle and its guarantees; task-runner, repo-agent-runtime, secrets, and network-policy features are out of scope.
-- New resource types and liveness sources go through the Adapter and Owner contracts; dibs ships one as a built-in, off until an opt-in setting enables it, only when it is widely used and CI-testable and was proposed as an issue first; anything dibs does not ship stays an exec file or plugin.
+- New resource types and liveness sources go through the Adapter and Owner contracts; dibs ships one as a built-in, off until an opt-in setting enables it, only when it is widely used or dogfooded by the maintainers' own fleet, is CI-testable, and was proposed as an issue first; anything dibs does not ship stays an exec file or plugin.
 - Every adapter or owner must pass the conformance kit; every call runs under a timeout, and extensions never write dibs state.
 - Record cleanup intent before creating a resource, and forget a lease only after destroy and verify-gone succeed.
 - Never reclaim a resource that is not under a lease (adoption is an explicit `adopt`), never reclaim on unknown liveness alone (expiry still reclaims), and never act on another machine's leases.

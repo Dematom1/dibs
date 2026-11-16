@@ -313,6 +313,111 @@ Pane shells and treehouse subshells are ordinary shells found by PID. This
 adapter does not drive tmux, herdr, or rex. A terminal lease that closes a pane
 hangs up its shell, and the shell lease then finds its shell gone.
 
+## Lease a pooled worktree
+
+The `treehouse-worktree` adapter leases one slot of a
+[treehouse](https://github.com/kunchenguid/treehouse) worktree pool. Treehouse
+keeps allocation, reset, and its own durable lease token. Dibs adds the owner,
+expiry, and reclaim that treehouse leases do not have. Without lease policies,
+an expired worktree lease becomes eligible for reclamation like every lease, and
+the next `dibs sweep --confirm` returns its slot, so renew it with `dibs extend`
+before expiry. To keep a live owner's slot past expiry, pass
+`--protect-live-owner` (see [live-owner protection](#protect-a-live-owners-lease)), or
+turn on lease policies, whose built-in `treehouse-worktree` row is owner-bound.
+With the consumer contract on, `--key` makes `create` and `adopt` retries return
+the same lease. It needs treehouse 3.1.5 or newer and git 2.31 or newer on `PATH`.
+
+The adapter is off by default. Turn it on per machine with
+`"treehouse_worktree_adapter": true` in the user config, or with
+`DIBS_TREEHOUSE_WORKTREE=1`. The variable overrides the config either way, so
+`DIBS_TREEHOUSE_WORKTREE=0` turns a config opt-in off. Project files cannot
+enable it. While it is off, `create --adapter treehouse-worktree` and
+`adopt treehouse-worktree` fail with code 2 and name the setting. Leases that
+are already recorded still list, release, and sweep.
+
+```sh
+export DIBS_TREEHOUSE_WORKTREE=1
+dibs --axi create --adapter treehouse-worktree --repo ~/src/app \
+  --owner "pid:$WORKER_PID" --ttl 8h --landed-exclude-remote gate
+# lease.path is the slot; ps --full records carry resource.path too
+dibs --axi extend <id> --ttl 8h
+dibs --axi release <id> --confirm   # returns the slot only if its work landed
+```
+
+`create` saves the lease first, then runs
+`treehouse get --lease --json --lease-holder dibs:<id>` in the repository's main
+checkout, then records the slot path and treehouse `lease_id` on the lease.
+`--repo` defaults to the current directory. A `TREEHOUSE_ROOT` that is set at
+create time is pinned and passed as `--root` to every later call. Otherwise,
+later calls clear `TREEHOUSE_ROOT`. If dibs stops after treehouse allocates a
+slot but before it records the token, release finds the slot by its unique
+`dibs:<id>` holder.
+
+To lease a slot that treehouse already leased durably (from
+`treehouse get --lease` or `treehouse lease <name>`), adopt it by path and token:
+
+```sh
+dibs --axi adopt treehouse-worktree /path/to/slot --lease-id <treehouse lease_id> \
+  --owner "pid:$WORKER_PID" --ttl 8h
+```
+
+Adoption requires that exact token on that exact slot. It refuses a slot that
+another dibs lease already owns, and a slot that only a process reservation
+holds (a plain `treehouse get`).
+
+Release and sweep return the slot with
+`treehouse return <path> --if-lease-id <token>` (plus `--if-lease-holder` for
+slots that dibs allocated). A stale lease therefore never resets a slot that has
+been handed to someone else since. Before return, dibs requires detected slot
+processes to exit and refuses unlanded work, keeping the lease. Unlanded work is:
+
+- uncommitted changes, including untracked files
+  (`git status --porcelain --untracked-files=all`)
+- commits that no remote-tracking ref contains
+  (`git log HEAD --not --remotes`)
+
+Treehouse detects processes by cwd inside the slot, so processes whose cwd is
+elsewhere are not covered. Dibs rechecks the claim, process list, and HEAD
+immediately before return. Callers should stop their writers before release.
+Sweep and `reclaim` act only on leases whose owner is dead or whose lease ended.
+
+There is a narrow limit: dibs's final check and `treehouse return` are separate
+processes. A process that starts in the slot and creates a commit between them
+can have that commit reset away. A commit on a named branch remains reachable in
+the shared repository; a detached-HEAD commit is reachable only from the reflog.
+Uncommitted edits in that interval are still caught because return without
+`--force` refuses a dirty tree. Full closure needs an atomic return-if-clean in
+treehouse; see [treehouse issue 216](https://github.com/kunchenguid/treehouse/issues/216).
+
+A blocked release exits 1. The AXI and JSON error carries a `blockers` object
+with up to ten `uncommitted` paths, up to ten `unpushed` commit IDs, the
+`uncommitted_count` and `unpushed_count` totals, and the `processes` (`pid`,
+`name`) that must exit first. With the consumer contract on, a blocked `release`
+or `reclaim` carries the same `blockers`, reports `reason: unlanded_work`, and
+exits 3. A blocked sweep lists the same reason under `failures`. Pass `--landed-exclude-remote NAME` (repeatable) on
+`create` or `adopt` for remotes whose refs do not count as landed, such as a
+local validation mirror. The lease records the list, so sweep applies the same
+policy later. Only an explicit `dibs release <id> --confirm --discard-unlanded`
+returns a slot that holds unlanded work, with `treehouse return --force`. It
+skips only the unlanded-work check; it never terminates processes in the slot.
+Stop them first. Use it only after you prove that the work landed some other
+way, such as a squash-merged pull request. Sweep never discards work.
+
+Verify-gone means the claim is gone: no slot carries the token (or the pending
+holder), and the pinned slot is either listed without it or deleted. The slot
+itself goes back to the pool. Treehouse stops processes that are still running
+inside the slot when it returns it. Never also run `treehouse return` on a slot
+that dibs owns. Release the lease instead.
+
+Slot returns can take seconds. Release, sweep, and `reclaim` run this adapter's
+cleanup without the host-wide state lock, so renewals of other leases do not
+wait behind it. Dibs marks the lease first, and `extend` refuses a marked lease
+(`cleanup_in_progress`) until a release or sweep finishes the cleanup. A refusal
+for unlanded work or running processes touches nothing, so it removes the mark
+again and the owner can keep renewing. Dibs then
+forgets the lease under the lock only if its recorded identity did not change in
+the meantime.
+
 ## Run a local job
 
 ```sh
@@ -598,7 +703,8 @@ outage reads as owner death.
 (`status: renewed`). After expiry it reattaches the same lease (`status:
 reattached`) only when the adapter proves the pinned resource is still present.
 For kind, k3d, and Compose, the cluster or project must still be visible in the
-pinned Docker context, at the pinned endpoint for adopted resources. A renew
+pinned Docker context, at the pinned endpoint for adopted resources. For
+`treehouse-worktree`, the pool must still carry the lease's treehouse token. A renew
 never creates a lease. A refusal for one of these reasons exits 3, leaves the
 lease unchanged, and names the `reason` in AXI and JSON output; any other
 refusal, such as a lease on another machine, exits 1 as for any lease:
@@ -646,6 +752,7 @@ Built-in rows apply when the table is on:
 | `shell` | `hybrid` | `8h` | - | - | `30m` | `false` |
 | `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - |
 | `none` | `time` | `8h` | - | - | - | - |
+| `treehouse-worktree` | `owner` | `8h` | - | - | - | - |
 
 Job deadlines come from job classes, and a `process` row is refused. A row you
 configure replaces the built-in row with the same key; omitted fields are off.
@@ -686,10 +793,11 @@ without one), the condition that fired, when the next condition ends
 | Command | Behavior |
 | --- | --- |
 | `dibs` | Live home view with executable path, description, lease count, and hints |
-| `dibs create` or `dibs up` | Create a lease, optionally with `--adapter kind`, `k3d`, or `compose`; with the consumer contract, `--pending` records it before you build the resource and `--key` makes retries idempotent |
+| `dibs create` or `dibs up` | Create a lease, optionally with `--adapter kind`, `k3d`, `compose`, or the opt-in `treehouse-worktree` (`--repo`, `--landed-exclude-remote`); with the consumer contract, `--pending` records it before you build the resource and `--key` makes retries idempotent |
 | `dibs adopt <type> <name> --owner KIND:ID --ttl D` | Lease an existing kind, k3d, or Compose resource after verifying existence |
 | `dibs adopt <type> <handle> --pending ID` | Consumer contract: register the resource you built for a pending lease |
 | `dibs adopt shell <pid> --owner KIND:ID` | Lease a running shell and its helpers by PID and start time (`shell_adapter`) |
+| `dibs adopt treehouse-worktree <path> --lease-id ID --owner KIND:ID --ttl D` | Lease a durably leased treehouse slot after verifying its token (`treehouse_worktree_adapter`) |
 | `dibs reconcile [ID] [--confirm]` | Consumer contract: find and bind resources built for pending leases after a crash |
 | `dibs reclaim ID [--confirm]` | Consumer contract: reclaim one lease only when its owner is proven dead |
 | `dibs explain ID` | Consumer contract: owner liveness, expiry, and whether sweep or reclaim would act, and why |
@@ -698,7 +806,7 @@ without one), the condition that fired, when the next condition ends
 | `dibs env <id>` | Print a shell-safe kubeconfig export for a kind or k3d lease |
 | `dibs setup hooks [--remove]` | Install or remove managed agent integrations |
 | `dibs extend <id> --ttl D` | Renew an unexpired lease with a live owner; a protected lease may also reattach after expiry |
-| `dibs release <id>` or `down` | Preview cleanup; `--confirm` performs it |
+| `dibs release <id>` or `down` | Preview cleanup; `--confirm` performs it; `--discard-unlanded` lets a confirmed worktree release discard unlanded work |
 | `dibs sweep` | Preview reclaim of dead-owner or expired leases; `--confirm` performs it |
 | `dibs job [--machine NAME] [flags] -- <cmd...>` | FIFO machine-budget admission, deadline, and child exit-code passthrough |
 | `dibs machine install <name> --file <binary>` | Version-checked SSH agent installation or upgrade |

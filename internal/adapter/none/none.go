@@ -8,7 +8,9 @@ import (
 
 type resource struct{}
 
-func (resource) Create(context.Context, adapterpkg.Target) error  { return nil }
+func (resource) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {
+	return t.Ref, nil
+}
 func (resource) Destroy(context.Context, adapterpkg.Target) error { return nil }
 func New() adapterpkg.Definition {
 	return adapterpkg.Definition{Name: "none", Adapter: resource{}, CreateAllowed: true,

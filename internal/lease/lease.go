@@ -33,6 +33,7 @@ type Lease struct {
 	Policy *policypkg.Policy `json:"policy,omitempty"`
 	// DeadSince is when a confirmed sweep first saw the owner dead, so a grace period can run.
 	DeadSince *time.Time `json:"owner_dead_since,omitempty"`
+	Releasing *time.Time `json:"releasing,omitempty"`
 }
 
 func newLease(owner ownerpkg.Reference, ttl time.Duration, resources string, labels map[string]string, now time.Time) (Lease, error) {
@@ -72,9 +73,14 @@ const (
 	MaxLifetime     = "max_lifetime"
 	Renewed         = "renewed"
 	Reattached      = "reattached"
+	// CleanupInProgress refuses renewal while outside-lock cleanup holds the lease.
+	CleanupInProgress = "cleanup_in_progress"
 )
 
 func extendLease(l *Lease, host string, ttl time.Duration, now time.Time, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, present func(Lease) (bool, error)) (string, error) {
+	if l.Releasing != nil {
+		return "", &RenewRefusal{Reason: CleanupInProgress, Legacy: true}
+	}
 	if ttl <= 0 {
 		return "", errors.New("--ttl must be positive")
 	}
@@ -183,8 +189,11 @@ type SweepResult struct {
 	Held map[string]string `json:"held,omitempty"`
 }
 
-func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry) SweepResult {
+// sweep returns eligible leases whose cleanup must run outside the state lock
+// instead of releasing them; the caller releases them after unlocking.
+func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry) (SweepResult, []outsideCleanup) {
 	r := SweepResult{Reclaimed: []string{}, Eligible: []string{}, Unknown: []string{}, Failures: map[string]string{}, Held: map[string]string{}}
+	var outside []outsideCleanup
 	for _, id := range s.IDs() {
 		l := s.Leases[id]
 		v := decide(ctx, l, host, now, check, adapters)
@@ -205,6 +214,14 @@ func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bo
 			continue
 		}
 		r.Eligible = append(r.Eligible, id)
+		if d, ok := adapters.Lookup(l.ResourceRef.Adapter); confirm && ok && d.CleanupOutsideLock {
+			if c, err := markReleasing(s, l); err != nil {
+				r.Failures[id] = err.Error()
+			} else {
+				outside = append(outside, c)
+			}
+			continue
+		}
 		if confirm {
 			if _, err := releaseLease(ctx, s, id, host, adapters); err != nil {
 				r.Failures[id] = err.Error()
@@ -213,5 +230,5 @@ func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bo
 			}
 		}
 	}
-	return r
+	return r, outside
 }

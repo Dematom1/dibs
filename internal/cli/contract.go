@@ -19,25 +19,27 @@ import (
 const contractVersion = 1
 
 var reasonHints = map[string]string{
-	"not_found":        "Run dibs create to acquire a new lease; a released lease cannot be restored",
-	"wrong_machine":    "Run this command on the lease's machine",
-	"not_pending":      "Run dibs explain <id>; the lease already covers a resource",
-	"already_leased":   "Run dibs ps to find the lease that owns the resource",
-	"key_conflict":     "Repeat the original request, or choose a new --key",
-	"handle_exists":    "Run dibs adopt for a resource that already exists",
-	"handle_mismatch":  "Pass the handle the pending lease recorded; run dibs explain <id>",
-	"resource_absent":  "Create the resource first, then retry",
-	"ambiguous":        "Resolve the ambiguous resource matches, then retry this command",
-	"owner_alive":      "Wait for the owner to end, or have its owner run dibs release <id> --confirm",
-	"owner_unknown":    "Retry later; unknown liveness never permits reclaim, but an expired unprotected lease can still be swept, so inspect it with dibs explain <id>",
-	"expired":          "Release the lease and acquire again; do not create a second lease for a resource still covered",
-	"owner_dead":       "Run dibs reclaim <id> --confirm or dibs sweep --confirm",
-	"resource_unknown": "Retry dibs extend <id> when the resource tool is reachable; the lease is retained",
-	"job_deadline":     "Start a new dibs job with --timeout",
-	"max_lifetime":     "Release the lease and acquire again; its policy caps how long one lease may live",
-	"grace":            "Retry after the grace period; dibs explain <id> shows when it ends",
-	"resource_busy":    "Wait for the foreground job to finish; a busy resource is never reclaimed",
-	"live_owner":       "The condition fired, but the owner is alive or unknown; reclamation requires explicit policy permission for live owners",
+	"not_found":           "Run dibs create to acquire a new lease; a released lease cannot be restored",
+	"wrong_machine":       "Run this command on the lease's machine",
+	"not_pending":         "Run dibs explain <id>; the lease already covers a resource",
+	"already_leased":      "Run dibs ps to find the lease that owns the resource",
+	"key_conflict":        "Repeat the original request, or choose a new --key",
+	"handle_exists":       "Run dibs adopt for a resource that already exists",
+	"handle_mismatch":     "Pass the handle the pending lease recorded; run dibs explain <id>",
+	"resource_absent":     "Create the resource first, then retry",
+	"ambiguous":           "Resolve the ambiguous resource matches, then retry this command",
+	"owner_alive":         "Wait for the owner to end, or have its owner run dibs release <id> --confirm",
+	"owner_unknown":       "Retry later; unknown liveness never permits reclaim, but an expired unprotected lease can still be swept, so inspect it with dibs explain <id>",
+	"expired":             "Release the lease and acquire again; do not create a second lease for a resource still covered",
+	"owner_dead":          "Run dibs reclaim <id> --confirm or dibs sweep --confirm",
+	"resource_unknown":    "Retry dibs extend <id> when the resource tool is reachable; the lease is retained",
+	"job_deadline":        "Start a new dibs job with --timeout",
+	"max_lifetime":        "Release the lease and acquire again; its policy caps how long one lease may live",
+	"grace":               "Retry after the grace period; dibs explain <id> shows when it ends",
+	"resource_busy":       "Wait for the foreground job to finish; a busy resource is never reclaimed",
+	"live_owner":          "The condition fired, but the owner is alive or unknown; reclamation requires explicit policy permission for live owners",
+	"cleanup_in_progress": "Run dibs release <id> --confirm to finish the interrupted cleanup; the lease cannot be renewed until it succeeds",
+	"unlanded_work":       "Land or stop what blockers lists, then retry; nothing was cleaned up",
 }
 
 const keyRule = "--key must be 1-200 letters, digits or ._:/@+=- and start with a letter or digit"
@@ -141,6 +143,9 @@ func (app application) runContract(ctx context.Context, command string, args []s
 	switch command {
 	case "reclaim":
 		r, err := app.leases.Reclaim(ctx, id, *confirm)
+		if code, ok := unlandedRefused(out, mode, id, err, true, "reclaim "+id+" --confirm"); ok {
+			return code
+		}
 		if err != nil {
 			return app.contractError(out, mode, command, id, err)
 		}
@@ -257,4 +262,24 @@ func explainPolicy(result map[string]any, e leasepkg.Explanation) {
 		}
 		result["activity"] = activity
 	}
+}
+
+// unlandedRefused renders a cleanup an adapter refused to protect unlanded work
+// or live processes. With the contract it is a refusal (exit 3, unlanded_work);
+// without it, exit 1 as before. Both carry the same blockers.
+func unlandedRefused(out io.Writer, mode outputpkg.Mode, id string, err error, contract bool, retry string) (int, bool) {
+	var unlanded *adapterpkg.UnlandedError
+	if !errors.As(err, &unlanded) {
+		return 0, false
+	}
+	hints := []string{"Commit and push the work, then rerun dibs " + retry, "Run dibs release " + id + " --confirm --discard-unlanded only after proving the work landed elsewhere"}
+	if len(unlanded.Processes) > 0 {
+		hints = []string{"Stop the listed processes, then retry dibs " + retry}
+	}
+	value := map[string]any{"code": "COMMAND_FAILED", "exit_code": 1, "error": err.Error(), "id": id, "blockers": unlanded.View(), "help": hints}
+	if contract {
+		value["contract"], value["reason"], value["exit_code"] = contractVersion, "unlanded_work", 3
+	}
+	outputpkg.Emit(out, mode, value)
+	return value["exit_code"].(int), true
 }

@@ -1,8 +1,8 @@
 # Adapters, adoption, and orphans
 
-An adapter creates and destroys the resource behind a lease. dibs ships four built-in adapters, `none`, `kind`, `k3d`, and `compose`, each registered explicitly in `internal/cli/adapters.go`. The job reservation uses a fifth, internal `process` path that is not in the registry. This page describes the adapter contract, each built-in adapter, how dibs pins the Docker endpoint for cleanup, and how existing resources enter dibs through `adopt` and are listed through `orphans`.
+An adapter creates and destroys the resource behind a lease. dibs ships five built-in adapters, `none`, `kind`, `k3d`, `compose`, and the opt-in `treehouse-worktree`, each registered explicitly in `internal/cli/adapters.go`. Job reservations use an internal `process` path that is not in the registry. This page describes the adapter contract, each built-in adapter, how dibs pins the Docker endpoint for cleanup, and how existing resources enter dibs through `adopt` and are listed through `orphans`.
 
-Source: `internal/adapter/adapter.go` (contract and registry), `internal/adapter/command.go` (external commands), `internal/adapter/docker.go` and `internal/adapter/inventory.go` (Docker context and discovery), `internal/adapter/{none,kind,k3d,compose}/` (built-ins), `internal/lease/inventory.go` (`Adopt`, `Orphans`), and `internal/cli/inventory.go` (the commands). Tests: `internal/adapter/adapter_test.go`, `internal/adapter/compose/inventory_test.go`, `internal/adapter/snapshot_test.go`, `internal/lease/inventory_test.go`, `internal/cli/inventory_test.go`, and `internal/cli/integration_test.go` (build tag `integration`, run with `just integration`). Decisions: [ADR 0002](adr/0002-reclaim-with-proof.md), [ADR 0005](adr/0005-adapter-and-owner-extension-contracts.md).
+Source: `internal/adapter/adapter.go` (contract and registry), `internal/adapter/command.go` (external commands), `internal/adapter/docker.go` and `internal/adapter/inventory.go` (Docker context and discovery), `internal/adapter/{none,kind,k3d,compose,treehouseworktree}/` (built-ins), `internal/lease/inventory.go` (`Adopt`, `Orphans`), and `internal/cli/inventory.go` (the commands). Tests: `internal/adapter/adapter_test.go`, `internal/adapter/compose/inventory_test.go`, `internal/adapter/snapshot_test.go`, `internal/lease/inventory_test.go`, `internal/cli/inventory_test.go`, and `internal/cli/integration_test.go` (build tag `integration`, run with `just integration`). Decisions: [ADR 0002](adr/0002-reclaim-with-proof.md), [ADR 0005](adr/0005-adapter-and-owner-extension-contracts.md).
 
 ## Contract
 
@@ -10,17 +10,17 @@ Source: `internal/adapter/adapter.go` (contract and registry), `internal/adapter
 
 ```go
 type Adapter interface {
-	Create(context.Context, Target) error
+	Create(context.Context, Target) (ResourceRef, error)
 	Destroy(context.Context, Target) error
 }
 ```
 
-A `Target` carries the `ResourceRef` captured at prepare time and the lease `Metadata`: lease ID, machine, owner, expiry, and labels. A `Definition` adds what the core needs around the adapter: `Name`, `CreateAllowed`, `RequiresFile`, and the functions `Prepare`, `Validate`, `Env`, and optionally `Discover` and `Exists`. `NewRegistry` panics on an incomplete or duplicate definition, so a broken adapter fails at startup, not on first use.
+A `Target` carries the `ResourceRef` captured at prepare time, the lease `Metadata` (lease ID, machine, owner, expiry, and labels), and `DiscardUnlanded`, which only an explicit `release --discard-unlanded` sets. `Create` returns the identity to record; it differs from the prepared one only when creation learns something, such as an allocator token. The lease manager records it, never the adapter. A `Definition` adds what the core needs around the adapter: `Name`, `CreateAllowed`, `RequiresFile`, `OptIn` (the setting that enables an optional built-in that is off), `VerifiesAdoption` (its `Prepare` verifies an existing resource without Docker discovery), `CleanupOutsideLock` (its `Destroy` runs without the state lock), `HostScoped` (the resource lives on this host, outside any Docker context), and the functions `Prepare`, `Validate`, `Env`, and optionally `ResolveRepo` (normalizes a caller's repository argument to the canonical identity recorded by the adapter, so keyed retries compare like with like), `Discover`, `Exists` (whether the pinned resource is present, for a protected lease that renews after expiry), and `Activity` (current use, for policy idle and busy rules). `NewRegistry` panics on an incomplete or duplicate definition, so a broken adapter fails at startup, not on first use.
 
 The callers in `internal/lease/manager.go` and `internal/lease/lease.go` enforce the contract:
 
 - `Prepare` runs before the lease is saved, and captures the Docker context and endpoint and the private files. See [Docker endpoint pinning](#docker-context-pinning).
-- `Create` runs only after the lease is saved. A failed `Create` keeps the lease.
+- `Create` runs only after the lease is saved. A failed `Create` keeps the lease. A changed identity from `Create` must pass `Validate` and is saved before the result is reported.
 - `Destroy` tolerates a resource that is partly created or already gone.
 - `Destroy` returns nil only after it has verified that the resource is gone (verify-gone). `kind`, `k3d`, and `compose` delete the resource and then list what remains. `none` has nothing to verify.
 - A `Destroy` error keeps the lease, and a later `release` or `sweep` retries it.
@@ -103,9 +103,23 @@ Tests: `TestComposeSnapshotAndUnsafeNames`, `TestIntegrationCompose`.
 
 The `process` adapter backs job reservations. It is not in the registry. `processResource` in `internal/lease/job_process.go` handles it inside `releaseLease`. `Create` does nothing. `Destroy` terminates the job's process group after it verifies the leader's identity. If the leader is already gone and reaped, `Destroy` succeeds without signaling, and descendants may survive. [ADR 0002](adr/0002-reclaim-with-proof.md#existing-process-exception) records this exception. See [Jobs](jobs.md#process-group-cleanup).
 
+### treehouse-worktree
+
+`treehouseworktree.New` leases one slot of a treehouse worktree pool through treehouse's own durable lease token. It is registered on every run so recorded leases stay readable and releasable, but `CreateAllowed` and `VerifiesAdoption` are set only when `treehouse_worktree_adapter` or `DIBS_TREEHOUSE_WORKTREE` turns it on. Every call goes through `RunCommandIn` with the pinned main checkout as its working directory, the 5-minute timeout, and an environment that clears `TREEHOUSE_ROOT` and `TREEHOUSE_LEASE_HOLDER`. A pinned pool root is passed as `--root`.
+
+- `Prepare` resolves `--repo` to the main checkout with `git rev-parse --path-format=absolute --git-common-dir`, pins `TREEHOUSE_ROOT` when it is set, records `--landed-exclude-remote` names, and sets the holder to `dibs:<lease id>`. It writes no snapshot file.
+- `Create`: `treehouse get --lease --json --lease-holder dibs:<id>`. It returns the slot path and `lease_id`, plus the slot name from `treehouse status --json` when that call succeeds. An unreadable allocation keeps the pending lease, which `Destroy` finds by its holder.
+- `Destroy` lists `treehouse status --json` and finds the claim by token, or by holder while no token is recorded. With no claim left, it succeeds only when the pinned slot is listed without the claim or no longer exists; an unlisted slot that still exists is an error. It refuses with an `UnlandedError` if `treehouse status --json` reports processes in the slot, including when `--discard-unlanded` is set. That flag skips only the unlanded-work proof and never terminates running processes; stop them first. Treehouse detects processes by cwd inside the slot; processes whose cwd is elsewhere are outside this proof. Callers should stop their writers before release. Sweep only acts on dead-owner or expired leases. With no detected processes, it refuses unlanded work using `git status --porcelain --untracked-files=all` and `git log --format=%H HEAD --not [--exclude=<remote>/*]... --remotes`. Immediately before return it rechecks the same claim, process list, and `git rev-parse HEAD`; any change retains the lease. `--discard-unlanded` skips these refusals. Then it runs `treehouse return <path> --if-lease-id <token>` (with `--if-lease-holder dibs:<id>` for slots it allocated, and `--force` only for `DiscardUnlanded`) and lists again to verify that the claim is gone. Treehouse's exit 3 (it kept a dirty slot) keeps the lease.
+
+  The final dibs check and `treehouse return` are separate processes. A process that starts in the slot and creates a commit between them can have that commit reset away. A commit on a named branch remains reachable in the shared repository; a detached-HEAD commit is reachable only from the reflog. Uncommitted edits in that interval are still caught because return without `--force` refuses a dirty tree. Full closure needs an atomic return-if-clean in treehouse; see [treehouse issue 216](https://github.com/kunchenguid/treehouse/issues/216).
+- Adoption: `Prepare` with `Existing.Adopted` requires the slot at that path to be `leased` under exactly that token, and refuses a path, token, or pending holder that another lease in `PrepareRequest.Leased` already owns. Adopted slots record no holder, so their return is conditional on the token only.
+- `CleanupOutsideLock` is set, because a return waits out treehouse's process grace period and resets the tree. See [Leases](leases.md#release).
+
+Tests: `internal/adapter/treehouseworktree/treehouseworktree_test.go`, `internal/cli/treehouse_test.go`, and `TestIntegrationTreehouseWorktree` (real treehouse in a disposable repository and pool; it fails when treehouse is missing).
+
 ## Adoption
 
-`dibs adopt <kind|k3d|compose> <name> --owner KIND:ID --ttl D` takes an existing resource under a lease. `Manager.Adopt` in `internal/lease/inventory.go` does the following under the state lock:
+`dibs adopt <kind|k3d|compose> <name> --owner KIND:ID --ttl D` takes an existing resource under a lease. `dibs adopt treehouse-worktree <path> --lease-id <token>` needs no Docker context; for it, step 3 and 4 below are replaced by the adapter's own verification against a read-only view of the same adapter's leases (see [treehouse-worktree](#treehouse-worktree)). `Manager.Adopt` in `internal/lease/inventory.go` does the following under the state lock:
 
 1. The owner must be alive, and the TTL must be positive.
 2. The adapter must support discovery, the name must be valid, and `--file` must be present exactly when the adapter requires it (Compose).

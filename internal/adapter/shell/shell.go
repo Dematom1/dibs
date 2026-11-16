@@ -180,8 +180,8 @@ func describe(found map[int]Process) []string {
 	return out
 }
 
-func (a adapter) Create(context.Context, adapterpkg.Target) error {
-	return errors.New("dibs does not start shells; lease a running shell with dibs adopt shell <pid>")
+func (a adapter) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {
+	return t.Ref, errors.New("dibs does not start shells; lease a running shell with dibs adopt shell <pid>")
 }
 
 func (a adapter) logf(ref *adapterpkg.ProcessRef, format string, args ...any) {

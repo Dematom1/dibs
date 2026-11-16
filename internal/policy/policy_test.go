@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var kinds = Kinds{Resources: []string{"none", "kind", "k3d", "compose", "shell"}, Owners: []string{"pid", "pr", "exec"}, Idle: func(r string) bool { return r == "shell" }}
+var kinds = Kinds{Resources: []string{"none", "kind", "k3d", "compose", "shell", "treehouse-worktree"}, Owners: []string{"pid", "pr", "exec"}, Idle: func(r string) bool { return r == "shell" }}
 
 func TestDefaultsCoverEveryResource(t *testing.T) {
 	table, err := Table(nil, kinds)
@@ -24,6 +24,9 @@ func TestDefaultsCoverEveryResource(t *testing.T) {
 	}
 	if p := table["kind"]; p.Binding != Time || p.TTL != 4*time.Hour || p.MaxLifetime != 24*time.Hour {
 		t.Fatalf("lab default = %+v", p)
+	}
+	if p := table["treehouse-worktree"]; !p.OwnerBound() || p.TTL != 8*time.Hour || p.Idle != 0 || p.MaxLifetime != 0 {
+		t.Fatalf("worktree default = %+v", p)
 	}
 }
 

@@ -89,7 +89,7 @@ func TestIntegrationPendingCrashRecovery(t *testing.T) {
 					t.Errorf("fixture cleanup failed: %v", err)
 				}
 			})
-			if err := d.Adapter.Create(ctx, fixture); err != nil {
+			if _, err := d.Adapter.Create(ctx, fixture); err != nil {
 				t.Fatal(err)
 			}
 			// Crash here: the caller never ran dibs adopt --pending. Its restart retries
