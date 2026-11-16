@@ -112,13 +112,13 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 		command string
 	}{
 		{check, "just lint"}, {check, "just cross"}, {check, "just deps-check"}, {check, "just vulncheck"},
-		{testJob, "just test"}, {testJob, "just build"}, {integration, "just integration"}, {integration, "just pr-owner-integration"}, {integration, "sudo apt-get update && sudo apt-get install -y --no-install-recommends tmux && tmux -V"},
+		{testJob, "just test"}, {testJob, "just build"}, {integration, "just integration"}, {integration, "just pr-owner-integration"},
 		{integration, ".claude/skills/verify/verify.py local --evidence \"$RUNNER_TEMP/verify/local\""}, {integration, ".claude/skills/verify/verify.py ssh --evidence \"$RUNNER_TEMP/verify/ssh\""}, {integration, ".claude/skills/verify/verify.py adapters --evidence \"$RUNNER_TEMP/verify/adapters\""},
 	} {
 		require(t, hasRun(pair.job, pair.command), "missing CI command: "+pair.command)
 	}
 	steps := list(object(integration)["steps"])
-	treehouseInstall, integrationRun := -1, -1
+	tmuxInstall, treehouseInstall, integrationRun := -1, -1, -1
 	for i, raw := range steps {
 		step := object(raw)
 		run, _ := step["run"].(string)
@@ -141,10 +141,25 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 		if install >= 0 && path > install {
 			treehouseInstall = i
 		}
+		fields := strings.Fields(run)
+		aptInstall, tmuxPackage := false, false
+		for j, field := range fields {
+			if field == "apt-get" && j+1 < len(fields) && fields[j+1] == "install" {
+				aptInstall = true
+			}
+			if field == "tmux" {
+				tmuxPackage = true
+			}
+		}
+		if aptInstall && tmuxPackage {
+			tmuxInstall = i
+		}
 		if run == "just integration" {
 			integrationRun = i
 		}
 	}
+	require(t, tmuxInstall >= 0 && integrationRun > tmuxInstall,
+		"integration must install tmux before running integration")
 	require(t, treehouseInstall >= 0 && integrationRun > treehouseInstall,
 		"integration must install pinned treehouse, add GOPATH/bin to PATH, then run integration")
 	required := object(jobs["main-required-ci"])
