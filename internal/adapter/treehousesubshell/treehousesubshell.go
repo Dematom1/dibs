@@ -68,31 +68,52 @@ func holder(command string) bool {
 	return len(fields) >= 2 && filepath.Base(fields[0]) == "treehouse" && (fields[1] == "get" || fields[1] == "enter")
 }
 
+func directChildren(all []entry, parent int) []entry {
+	children := []entry{}
+	for _, e := range all {
+		if e.ppid == parent {
+			children = append(children, e)
+		}
+	}
+	return children
+}
+
 func list(ctx context.Context, sys terminalpkg.System, _ string) ([]terminalpkg.Pane, error) {
 	all, err := processes(ctx, sys, "-ax")
 	if err != nil {
 		return nil, err
 	}
-	shells := map[int]entry{}
-	for _, e := range all {
-		if _, seen := shells[e.ppid]; !seen {
-			shells[e.ppid] = e
-		}
-	}
 	panes, subshells := []terminalpkg.Pane{}, []string{}
 	for _, e := range all {
-		if holder(e.command) {
-			panes = append(panes, terminalpkg.Pane{ID: strconv.Itoa(e.pid), PID: e.pid, Label: e.command, Command: shells[e.pid].command})
-			if shell, ok := shells[e.pid]; ok {
-				subshells = append(subshells, strconv.Itoa(shell.pid))
-			}
+		if !holder(e.command) {
+			continue
 		}
+		children := directChildren(all, e.pid)
+		pane := terminalpkg.Pane{ID: strconv.Itoa(e.pid), PID: e.pid, Label: e.command}
+		for _, child := range children {
+			pane.ChildPIDs = append(pane.ChildPIDs, child.pid)
+			pane.Command = join(pane.Command, child.command)
+			subshells = append(subshells, strconv.Itoa(child.pid))
+		}
+		panes = append(panes, pane)
 	}
 	dirs := workingDirs(ctx, sys, subshells)
 	for i := range panes {
-		panes[i].Dir = dirs[shells[panes[i].PID].pid]
+		for _, pid := range panes[i].ChildPIDs {
+			panes[i].Dir = join(panes[i].Dir, dirs[pid])
+		}
 	}
 	return panes, nil
+}
+
+func join(current, next string) string {
+	if next == "" {
+		return current
+	}
+	if current == "" {
+		return next
+	}
+	return current + ", " + next
 }
 
 // workingDirs reads each subshell's cwd, the worktree it works in. It is
@@ -128,12 +149,9 @@ func lookup(ctx context.Context, sys terminalpkg.System, _ string, id string) (t
 			continue
 		}
 		p := terminalpkg.Pane{ID: id, PID: e.pid, Label: e.command}
-		for _, child := range all {
-			if child.ppid == e.pid {
-				p.ChildPID = child.pid
-				p.Command = child.command
-				break
-			}
+		for _, child := range directChildren(all, e.pid) {
+			p.ChildPIDs = append(p.ChildPIDs, child.pid)
+			p.Command = join(p.Command, child.command)
 		}
 		return p, true, nil
 	}
@@ -141,15 +159,9 @@ func lookup(ctx context.Context, sys terminalpkg.System, _ string, id string) (t
 }
 
 // hangup sends SIGHUP to the subshells the treehouse process holds, not to treehouse itself.
-func hangup(ctx context.Context, sys terminalpkg.System, p terminalpkg.Pane) {
-	all, err := processes(ctx, sys, "-ax")
-	if err != nil {
-		return
-	}
-	for _, e := range all {
-		if e.ppid == p.PID {
-			_ = sys.Signal(e.pid, syscall.SIGHUP)
-		}
+func hangup(_ context.Context, sys terminalpkg.System, p terminalpkg.Pane) {
+	for _, pid := range p.ChildPIDs {
+		_ = sys.Signal(pid, syscall.SIGHUP)
 	}
 }
 

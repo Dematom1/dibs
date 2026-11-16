@@ -39,8 +39,12 @@ func LeaseView(l leasepkg.Lease, live ownerpkg.Liveness, now time.Time, kubeconf
 	}
 	if pin := l.ResourceRef.Terminal; pin != nil {
 		terminal := map[string]any{"server": pin.Server, "pid": pin.PID, "start": pin.Start}
-		if pin.ChildPID > 0 && pin.ChildStart != "" {
-			terminal["child_pid"], terminal["child_start"] = pin.ChildPID, pin.ChildStart
+		if len(pin.Children) > 0 {
+			children := make([]map[string]any, 0, len(pin.Children))
+			for _, child := range pin.Children {
+				children = append(children, map[string]any{"pid": child.PID, "start": child.Start})
+			}
+			terminal["children"] = children
 		}
 		view["terminal"] = terminal
 	}

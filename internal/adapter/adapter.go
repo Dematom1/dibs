@@ -30,16 +30,20 @@ type ResourceRef struct {
 	Claim          string   `json:"treehouse_lease_id,omitempty"`
 	Holder         string   `json:"treehouse_lease_holder,omitempty"`
 	ExcludeRemotes []string `json:"landed_exclude_remotes,omitempty"`
-	// Terminal pins an adopted terminal's server and direct child process so a reused ID is never reclaimed by guess.
+	// Terminal pins an adopted terminal's server and direct child processes so a reused ID is never reclaimed by guess.
 	Terminal *TerminalPin `json:"terminal,omitempty"`
 }
 
 type TerminalPin struct {
-	Server     string `json:"server"`
-	PID        int    `json:"pid"`
-	Start      string `json:"start"`
-	ChildPID   int    `json:"child_pid,omitempty"`
-	ChildStart string `json:"child_start,omitempty"`
+	Server   string          `json:"server"`
+	PID      int             `json:"pid"`
+	Start    string          `json:"start"`
+	Children []TerminalChild `json:"children,omitempty"`
+}
+
+type TerminalChild struct {
+	PID   int    `json:"pid"`
+	Start string `json:"start"`
 }
 
 // ProcessRef pins a host process and the descendants recorded with it, each by

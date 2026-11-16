@@ -19,7 +19,7 @@ const pinnedStart = "Wed Nov 11 10:00:00 2026"
 type world struct {
 	panes       map[string]int
 	starts      map[int]string
-	childPID    int
+	childPIDs   []int
 	unknown     bool
 	listErr     error
 	signals     []string
@@ -67,7 +67,7 @@ func (w *world) driver() Driver {
 			}
 			panes := []Pane{}
 			for id, pid := range w.panes {
-				panes = append(panes, Pane{ID: id, PID: pid, ChildPID: w.childPID})
+				panes = append(panes, Pane{ID: id, PID: pid, ChildPIDs: w.childPIDs})
 			}
 			return panes, nil
 		},
@@ -89,11 +89,11 @@ func target(id string) adapterpkg.Target {
 }
 
 func TestPreparePinsHeldShellIdentity(t *testing.T) {
-	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart, 201: "shell-start"}, childPID: 201}
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart, 201: "shell-start"}, childPIDs: []int{201}}
 	d := New(w.driver(), w.system())
 	existing := adapterpkg.ResourceRef{Adapter: "fake", Name: "%1", Adopted: true, Terminal: &adapterpkg.TerminalPin{Server: "/sock"}}
 	got, err := d.Prepare(context.Background(), adapterpkg.PrepareRequest{Existing: existing})
-	if err != nil || got.Terminal.ChildPID != 201 || got.Terminal.ChildStart != "shell-start" {
+	if err != nil || !reflect.DeepEqual(got.Terminal.Children, []adapterpkg.TerminalChild{{PID: 201, Start: "shell-start"}}) {
 		t.Fatalf("prepared child identity = %+v, %v", got.Terminal, err)
 	}
 }
@@ -142,9 +142,9 @@ func TestDestroyDecisionTable(t *testing.T) {
 
 func TestCloseErrorStillVerifiesHeldShell(t *testing.T) {
 	w := world{
-		panes:    map[string]int{"%1": 100},
-		starts:   map[int]string{100: pinnedStart, 201: "shell-start"},
-		childPID: 201, closeKills: true, closeErr: errors.New("close failed"),
+		panes:     map[string]int{"%1": 100},
+		starts:    map[int]string{100: pinnedStart, 201: "shell-start"},
+		childPIDs: []int{201}, closeKills: true, closeErr: errors.New("close failed"),
 	}
 	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
 		t.Fatalf("Destroy error = %v, want surviving shell to retain lease", err)
@@ -186,14 +186,18 @@ func TestPrepareValidateAndDescribe(t *testing.T) {
 		}
 	}
 	for name, mutate := range map[string]func(*adapterpkg.ResourceRef){
-		"not adopted":             func(r *adapterpkg.ResourceRef) { r.Adopted = false },
-		"no pin":                  func(r *adapterpkg.ResourceRef) { r.Terminal = nil },
-		"no start":                func(r *adapterpkg.ResourceRef) { r.Terminal.Start = "" },
-		"child pid without start": func(r *adapterpkg.ResourceRef) { r.Terminal.ChildPID = 201 },
-		"child start without pid": func(r *adapterpkg.ResourceRef) { r.Terminal.ChildStart = "shell-start" },
-		"no server":               func(r *adapterpkg.ResourceRef) { r.Terminal.Server = "" },
-		"docker scope":            func(r *adapterpkg.ResourceRef) { r.Context = "orbstack" },
-		"snapshot file":           func(r *adapterpkg.ResourceRef) { r.File = "/tmp/x" },
+		"not adopted": func(r *adapterpkg.ResourceRef) { r.Adopted = false },
+		"no pin":      func(r *adapterpkg.ResourceRef) { r.Terminal = nil },
+		"no start":    func(r *adapterpkg.ResourceRef) { r.Terminal.Start = "" },
+		"invalid child": func(r *adapterpkg.ResourceRef) {
+			r.Terminal.Children = []adapterpkg.TerminalChild{{PID: 0, Start: "shell-start"}}
+		},
+		"duplicate child": func(r *adapterpkg.ResourceRef) {
+			r.Terminal.Children = []adapterpkg.TerminalChild{{PID: 201, Start: "a"}, {PID: 201, Start: "b"}}
+		},
+		"no server":     func(r *adapterpkg.ResourceRef) { r.Terminal.Server = "" },
+		"docker scope":  func(r *adapterpkg.ResourceRef) { r.Context = "orbstack" },
+		"snapshot file": func(r *adapterpkg.ResourceRef) { r.File = "/tmp/x" },
 	} {
 		bad := target("%1").Ref
 		mutate(&bad)

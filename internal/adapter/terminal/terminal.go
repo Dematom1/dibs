@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -17,15 +18,15 @@ import (
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
 )
 
-// Pane is one terminal as its tool reports it. PID is the terminal's direct
-// child process, or 0 when the tool reports none.
+// Pane is one terminal as its tool reports it. PID identifies the terminal's
+// process; ChildPIDs lists its direct child processes.
 type Pane struct {
-	ID       string
-	PID      int
-	Label    string
-	Command  string
-	Dir      string
-	ChildPID int
+	ID        string
+	PID       int
+	Label     string
+	Command   string
+	Dir       string
+	ChildPIDs []int
 }
 
 // ErrNoServer is proof that the server holds no terminals. Drivers return it
@@ -193,20 +194,27 @@ func (r resource) prepare(ctx context.Context, request adapterpkg.PrepareRequest
 		return adapterpkg.ResourceRef{}, fmt.Errorf("%s %s process %d is not alive and inspectable; adoption refused", r.driver.Noun, existing.Name, p.PID)
 	}
 	pin := &adapterpkg.TerminalPin{Server: server, PID: p.PID, Start: start}
-	if p.ChildPID > 0 {
-		childStart, childLive := r.sys.Process(p.ChildPID)
-		if childLive != ownerpkg.Alive || childStart == "" {
-			return adapterpkg.ResourceRef{}, fmt.Errorf("%s %s held shell %d is not alive and inspectable; adoption refused", r.driver.Noun, existing.Name, p.ChildPID)
+	for _, pid := range p.ChildPIDs {
+		childStart, childLive := r.sys.Process(pid)
+		if pid <= 0 || childLive != ownerpkg.Alive || childStart == "" {
+			return adapterpkg.ResourceRef{}, fmt.Errorf("%s %s held child %d is not alive and inspectable; adoption refused", r.driver.Noun, existing.Name, pid)
 		}
-		pin.ChildPID, pin.ChildStart = p.ChildPID, childStart
+		pin.Children = append(pin.Children, adapterpkg.TerminalChild{PID: pid, Start: childStart})
 	}
 	return adapterpkg.ResourceRef{Adopted: true, Adapter: r.driver.Name, Name: existing.Name, Terminal: pin}, nil
 }
 
 func (r resource) validate(_ string, _ adapterpkg.Metadata, ref adapterpkg.ResourceRef) error {
 	pin := ref.Terminal
-	if !ref.Adopted || !r.driver.ValidID(ref.Name) || pin == nil || pin.Server == "" || pin.PID <= 0 || pin.Start == "" || (pin.ChildPID == 0) != (pin.ChildStart == "") || pin.ChildPID < 0 || ref.Context != "" || ref.DockerHost != "" || ref.File != "" {
+	if !ref.Adopted || !r.driver.ValidID(ref.Name) || pin == nil || pin.Server == "" || pin.PID <= 0 || pin.Start == "" || ref.Context != "" || ref.DockerHost != "" || ref.File != "" {
 		return errors.New("invalid adopted terminal identity")
+	}
+	seen := map[int]bool{}
+	for _, child := range pin.Children {
+		if child.PID <= 0 || child.Start == "" || seen[child.PID] {
+			return errors.New("invalid adopted terminal child identity")
+		}
+		seen[child.PID] = true
 	}
 	return nil
 }
@@ -272,30 +280,24 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 		return err
 	}
 	pin := t.Ref.Terminal
-	childPID, childStart := pin.ChildPID, pin.ChildStart
+	children := pin.Children
 	if s == absent {
-		return r.settleChild(ctx, childPID, childStart)
+		return r.settleChildren(ctx, children)
 	}
-	if s == owned && childPID == 0 && p.ChildPID > 0 {
-		var live ownerpkg.Liveness
-		childStart, live = r.sys.Process(p.ChildPID)
-		if live == ownerpkg.Unknown {
-			return fmt.Errorf("cannot inspect held shell %d; lease retained", p.ChildPID)
-		}
-		if live == ownerpkg.Alive {
-			childPID = p.ChildPID
+	if s == owned && len(children) == 0 && len(p.ChildPIDs) > 0 {
+		for _, pid := range p.ChildPIDs {
+			start, live := r.sys.Process(pid)
+			if live == ownerpkg.Unknown {
+				return fmt.Errorf("cannot inspect held child %d; lease retained", pid)
+			}
+			if live == ownerpkg.Alive {
+				children = append(children, adapterpkg.TerminalChild{PID: pid, Start: start})
+			}
 		}
 	}
-	if s == owned && childPID > 0 {
-		if p.ChildPID != childPID {
-			return fmt.Errorf("%s %s no longer carries held shell %d; touching nothing, lease retained", r.driver.Noun, t.Ref.Name, childPID)
-		}
-		current, live := r.sys.Process(childPID)
-		if live == ownerpkg.Unknown {
-			return fmt.Errorf("cannot inspect held shell %d; lease retained", childPID)
-		}
-		if live == ownerpkg.Alive && current != childStart {
-			return fmt.Errorf("%s %s carries reused held-shell pid %d; touching nothing, lease retained", r.driver.Noun, t.Ref.Name, childPID)
+	if s == owned {
+		if err := r.verifyCurrentChildren(p, children); err != nil {
+			return err
 		}
 	}
 	if s == owned {
@@ -309,12 +311,12 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 			return err
 		}
 		if s == absent {
-			return r.settleChild(ctx, childPID, childStart)
+			return r.settleChildren(ctx, children)
 		}
 	}
 	if err := r.driver.Close(ctx, r.sys, t.Ref.Terminal.Server, p); err != nil {
 		if s, _, observeErr := r.observe(ctx, t.Ref); observeErr == nil && s == absent {
-			return r.settleChild(ctx, childPID, childStart)
+			return r.settleChildren(ctx, children)
 		}
 		return fmt.Errorf("cannot close %s %s; lease retained: %w", r.driver.Noun, t.Ref.Name, err)
 	}
@@ -322,31 +324,63 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 		return err
 	}
 	if s == absent {
-		return r.settleChild(ctx, childPID, childStart)
+		return r.settleChildren(ctx, children)
 	}
 	return fmt.Errorf("%s %s survived cleanup; retry dibs release", r.driver.Noun, t.Ref.Name)
 }
 
-// settle polls until the terminal is absent or the grace period ends.
-func (r resource) settleChild(ctx context.Context, pid int, start string) error {
-	if pid == 0 {
-		return nil
+func (r resource) verifyCurrentChildren(p Pane, children []adapterpkg.TerminalChild) error {
+	pinned := make(map[int]string, len(children))
+	for _, child := range children {
+		pinned[child.PID] = child.Start
 	}
-	const step = 100 * time.Millisecond
-	for waited := time.Duration(0); ; waited += step {
+	for _, pid := range p.ChildPIDs {
+		start, ok := pinned[pid]
+		if !ok {
+			return fmt.Errorf("%s %s has an unpinned child %d; touching nothing, lease retained", r.driver.Noun, p.ID, pid)
+		}
 		current, live := r.sys.Process(pid)
-		switch live {
-		case ownerpkg.Dead:
-			return nil
-		case ownerpkg.Unknown:
-			return fmt.Errorf("cannot verify held shell %d is gone; lease retained", pid)
-		case ownerpkg.Alive:
-			if current != start {
-				return nil
+		if live == ownerpkg.Unknown {
+			return fmt.Errorf("cannot inspect held child %d; lease retained", pid)
+		}
+		if live == ownerpkg.Alive && current != start {
+			return fmt.Errorf("%s %s carries reused child pid %d; touching nothing, lease retained", r.driver.Noun, p.ID, pid)
+		}
+	}
+	for _, child := range children {
+		if !slices.Contains(p.ChildPIDs, child.PID) {
+			current, live := r.sys.Process(child.PID)
+			if live == ownerpkg.Unknown || (live == ownerpkg.Alive && current == child.Start) {
+				return fmt.Errorf("%s %s no longer carries held child %d; touching nothing, lease retained", r.driver.Noun, p.ID, child.PID)
 			}
 		}
+	}
+	return nil
+}
+
+func (r resource) settleChildren(ctx context.Context, children []adapterpkg.TerminalChild) error {
+	const step = 100 * time.Millisecond
+	for waited := time.Duration(0); ; waited += step {
+		remaining := 0
+		for _, child := range children {
+			current, live := r.sys.Process(child.PID)
+			switch live {
+			case ownerpkg.Dead:
+				continue
+			case ownerpkg.Unknown:
+				return fmt.Errorf("cannot verify held child %d is gone; lease retained", child.PID)
+			case ownerpkg.Alive:
+				if current != child.Start {
+					continue
+				}
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			return nil
+		}
 		if waited >= r.sys.Grace {
-			return fmt.Errorf("held shell %d survived cleanup; lease retained", pid)
+			return fmt.Errorf("%d held child process(es) survived cleanup; lease retained", remaining)
 		}
 		r.sys.Sleep(step)
 	}

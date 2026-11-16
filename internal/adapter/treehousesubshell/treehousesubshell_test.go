@@ -23,6 +23,7 @@ type reply struct {
 
 const table = `  100     1 /usr/bin/login -flp user /bin/bash
   200   100 /nix/store/abc-treehouse/bin/treehouse get
+  203   200 /usr/bin/treehouse-helper --work
   201   200 /bin/zsh -i -l
   202   201 claude
   300   100 treehouse enter wt-3
@@ -58,15 +59,15 @@ const all = "-ax -ww -o pid=,ppid=,command="
 func TestListLookupHangupClose(t *testing.T) {
 	var signals []string
 	sys := fake(t, map[string]reply{
-		all:                              {out: table},
-		"lsof -a -d cwd -Fpn -p 201,301": {out: "p201\nfcwd\nn/pool/1/repo\np301\nfcwd\nn/pool/3/repo\n"},
+		all:                                  {out: table},
+		"lsof -a -d cwd -Fpn -p 203,201,301": {out: "p203\nfcwd\nn/pool/1/helper\np201\nfcwd\nn/pool/1/repo\np301\nfcwd\nn/pool/3/repo\n"},
 	}, &signals)
 	panes, err := list(context.Background(), sys, local)
-	want := []terminalpkg.Pane{{ID: "200", PID: 200, Label: "/nix/store/abc-treehouse/bin/treehouse get", Command: "/bin/zsh -i -l", Dir: "/pool/1/repo"}, {ID: "300", PID: 300, Label: "treehouse enter wt-3", Command: "/bin/zsh -i -l", Dir: "/pool/3/repo"}}
+	want := []terminalpkg.Pane{{ID: "200", PID: 200, Label: "/nix/store/abc-treehouse/bin/treehouse get", Command: "/usr/bin/treehouse-helper --work, /bin/zsh -i -l", Dir: "/pool/1/helper, /pool/1/repo", ChildPIDs: []int{203, 201}}, {ID: "300", PID: 300, Label: "treehouse enter wt-3", Command: "/bin/zsh -i -l", Dir: "/pool/3/repo", ChildPIDs: []int{301}}}
 	if err != nil || !reflect.DeepEqual(panes, want) {
 		t.Fatalf("panes %+v %v", panes, err)
 	}
-	if p, found, err := lookup(context.Background(), sys, local, "200"); err != nil || !found || p.PID != 200 {
+	if p, found, err := lookup(context.Background(), sys, local, "200"); err != nil || !found || p.PID != 200 || !reflect.DeepEqual(p.ChildPIDs, []int{203, 201}) {
 		t.Fatalf("live subshell holder: %+v %v %v", p, found, err)
 	}
 	if _, found, err := lookup(context.Background(), sys, local, "202"); err != nil || found {
@@ -75,40 +76,48 @@ func TestListLookupHangupClose(t *testing.T) {
 	if _, found, err := lookup(context.Background(), sys, local, "999"); err != nil || found {
 		t.Fatalf("exited process: %v %v", found, err)
 	}
-	hangup(context.Background(), sys, terminalpkg.Pane{ID: "200", PID: 200})
+	hangup(context.Background(), sys, terminalpkg.Pane{ID: "200", PID: 200, ChildPIDs: []int{203, 201}})
 	if err := closeSubshell(context.Background(), sys, local, terminalpkg.Pane{ID: "200", PID: 200}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(signals, []string{"hangup:201", "terminated:200"}) {
+	if !reflect.DeepEqual(signals, []string{"hangup:203", "hangup:201", "terminated:200"}) {
 		t.Fatalf("hangup must reach only the held subshell, then treehouse: %v", signals)
 	}
 }
 
-func TestDestroyRetainsShellThatOutlivesHolder(t *testing.T) {
-	holderAlive := true
+func TestDestroyTracksEveryChildWhenShellOutlivesHolder(t *testing.T) {
+	holderAlive, helperAlive := true, true
+	var signals []string
 	sys := terminalpkg.System{
 		Run: func(_ context.Context, _ []string, name string, _ ...string) ([]byte, string, int, error) {
 			if name != "ps" {
 				t.Fatalf("unexpected command %s", name)
 			}
 			if holderAlive {
-				return []byte("200 100 treehouse get\n201 200 /bin/zsh -i -l\n"), "", 0, nil
+				return []byte("200 100 treehouse get\n203 200 helper --work\n201 200 /bin/zsh -i -l\n"), "", 0, nil
 			}
 			return []byte("201 1 /bin/zsh -i -l\n"), "", 0, nil
 		},
 		Process: func(pid int) (string, ownerpkg.Liveness) {
-			if pid == 200 {
+			switch pid {
+			case 200:
 				if holderAlive {
 					return "holder-start", ownerpkg.Alive
 				}
-				return "", ownerpkg.Dead
-			}
-			if pid == 201 {
+			case 203:
+				if helperAlive {
+					return "helper-start", ownerpkg.Alive
+				}
+			case 201:
 				return "shell-start", ownerpkg.Alive
 			}
 			return "", ownerpkg.Dead
 		},
 		Signal: func(pid int, sig syscall.Signal) error {
+			signals = append(signals, sig.String()+":"+strconv.Itoa(pid))
+			if pid == 203 && sig == syscall.SIGHUP {
+				helperAlive = false
+			}
 			if pid == 200 && sig == syscall.SIGTERM {
 				holderAlive = false
 			}
@@ -116,11 +125,18 @@ func TestDestroyRetainsShellThatOutlivesHolder(t *testing.T) {
 		},
 		Sleep: func(time.Duration) {}, Grace: 0,
 	}
-	ref := adapterpkg.ResourceRef{Adopted: true, Adapter: "treehouse-subshell", Name: "200", Terminal: &adapterpkg.TerminalPin{Server: local, PID: 200, Start: "holder-start", ChildPID: 201, ChildStart: "shell-start"}}
+	d := New(sys)
+	ref, err := d.Prepare(context.Background(), adapterpkg.PrepareRequest{Existing: adapterpkg.ResourceRef{Adopted: true, Adapter: "treehouse-subshell", Name: "200", Terminal: &adapterpkg.TerminalPin{Server: local}}})
+	if err != nil || !reflect.DeepEqual(ref.Terminal.Children, []adapterpkg.TerminalChild{{PID: 203, Start: "helper-start"}, {PID: 201, Start: "shell-start"}}) {
+		t.Fatalf("adoption did not pin every direct child: %+v %v", ref.Terminal, err)
+	}
 	for attempt := 1; attempt <= 2; attempt++ {
-		if err := New(sys).Adapter.Destroy(context.Background(), adapterpkg.Target{Ref: ref}); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
+		if err := d.Adapter.Destroy(context.Background(), adapterpkg.Target{Ref: ref}); err == nil || !strings.Contains(err.Error(), "1 held child process(es) survived cleanup") {
 			t.Fatalf("Destroy attempt %d error = %v, want surviving shell to retain lease", attempt, err)
 		}
+	}
+	if !reflect.DeepEqual(signals, []string{"hangup:203", "hangup:201", "terminated:200"}) {
+		t.Fatalf("cleanup did not signal every pinned child: %v", signals)
 	}
 }
 

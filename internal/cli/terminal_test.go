@@ -179,11 +179,12 @@ func TestTerminalOutputModes(t *testing.T) {
 }
 
 func TestTerminalChildIdentityView(t *testing.T) {
-	pin := &adapterpkg.TerminalPin{Server: "/sock", PID: 200, Start: "holder-start", ChildPID: 201, ChildStart: "shell-start"}
+	pin := &adapterpkg.TerminalPin{Server: "/sock", PID: 200, Start: "holder-start", Children: []adapterpkg.TerminalChild{{PID: 201, Start: "shell-start"}}}
 	l := leasepkg.Lease{ResourceRef: adapterpkg.ResourceRef{Adapter: "treehouse-subshell", Name: "200", Terminal: pin}}
 	view := outputpkg.LeaseView(l, ownerpkg.Alive, l.Created, "")
 	terminal := view["terminal"].(map[string]any)
-	if terminal["child_pid"] != 201 || terminal["child_start"] != "shell-start" {
+	children, ok := terminal["children"].([]map[string]any)
+	if !ok || len(children) != 1 || children[0]["pid"] != 201 || children[0]["start"] != "shell-start" {
 		t.Fatalf("lease view lost held child identity: %#v", terminal)
 	}
 	for _, mode := range []outputpkg.Mode{outputpkg.Human, outputpkg.AXI, outputpkg.JSON} {
