@@ -290,7 +290,7 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	}
 	if err := r.driver.Close(ctx, r.sys, t.Ref.Terminal.Server, p); err != nil {
 		if s, _, observeErr := r.observe(ctx, t.Ref); observeErr == nil && s == absent {
-			return nil
+			return r.settleChild(ctx, childPID, childStart)
 		}
 		return fmt.Errorf("cannot close %s %s; lease retained: %w", r.driver.Noun, t.Ref.Name, err)
 	}

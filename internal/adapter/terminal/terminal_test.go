@@ -19,6 +19,7 @@ const pinnedStart = "Wed Nov 11 10:00:00 2026"
 type world struct {
 	panes       map[string]int
 	starts      map[int]string
+	childPID    int
 	unknown     bool
 	listErr     error
 	signals     []string
@@ -66,7 +67,7 @@ func (w *world) driver() Driver {
 			}
 			panes := []Pane{}
 			for id, pid := range w.panes {
-				panes = append(panes, Pane{ID: id, PID: pid})
+				panes = append(panes, Pane{ID: id, PID: pid, ChildPID: w.childPID})
 			}
 			return panes, nil
 		},
@@ -126,6 +127,17 @@ func TestDestroyDecisionTable(t *testing.T) {
 				t.Fatalf("signals %v closes %v, want %v %v", w.signals, w.closes, tc.signals, tc.closes)
 			}
 		})
+	}
+}
+
+func TestCloseErrorStillVerifiesHeldShell(t *testing.T) {
+	w := world{
+		panes:    map[string]int{"%1": 100},
+		starts:   map[int]string{100: pinnedStart, 201: "shell-start"},
+		childPID: 201, closeKills: true, closeErr: errors.New("close failed"),
+	}
+	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
+		t.Fatalf("Destroy error = %v, want surviving shell to retain lease", err)
 	}
 }
 
