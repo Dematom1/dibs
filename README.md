@@ -47,12 +47,30 @@ JSON with `jq`.
 | Docker Compose project | `compose` | Runs a resolved snapshot of your Compose file. Release runs `down --volumes`, which deletes the project's volumes. | `docker compose`, a running Docker engine |
 | Existing kind, k3d, or Compose resource | `dibs adopt` | Leases a resource you already have, explicitly. Unleased resources are never swept. | The same as its adapter |
 | Running shell (opt-in) | `shell`, with `DIBS_SHELL_ADAPTER=1` | Leases a shell PID and its helper processes. Release sends SIGHUP, then SIGTERM and SIGKILL to survivors. | `adopt shell` on Linux or macOS |
+| Agent terminal (opt-in) | `tmux`, `herdr`, `rex`, or `treehouse-subshell`, with `terminal_adapters` in user config or `DIBS_TERMINAL_ADAPTERS` | Leases a pane, block, or subshell to its task owner; sweep closes it only after proven owner death. | The corresponding terminal tool |
 | Pooled git worktree (opt-in) | `treehouse-worktree`, with `DIBS_TREEHOUSE_WORKTREE=1` | Leases one slot of a treehouse pool. Release refuses to return a slot while its work has not landed. | treehouse 3.1.5 or newer, git 2.31 or newer |
 | Local job | `dibs job` | Admits the job within this machine's CPU and memory budget, minus owner room. | Nothing |
 | Job on an SSH machine | `dibs job` with a configured machine | Runs the job on a configured SSH machine under that machine's budget. | SSH access to the machine |
 
 Details for each resource are in [docs/guides/resources.md](docs/guides/resources.md)
 and [docs/guides/jobs.md](docs/guides/jobs.md).
+
+## Lease agent terminals
+
+Turn on only the terminal adapters you use with `terminal_adapters` in your user
+`config.json`, or set `DIBS_TERMINAL_ADAPTERS` to a comma-separated list. Right
+after opening a pane, block, or subshell, lease it to the opening task; keep the
+returned lease ID and release it when closing the terminal:
+
+```sh
+dibs adopt <type> <id> --owner KIND:ID --ttl D
+ dibs release <lease-id> --confirm
+```
+
+Add `--server` when needed and optionally `--key` for an idempotent retry. Dibs
+does not hook terminal creation: skipped adopts leave terminals unleased, and
+`dibs orphans` lists unleased terminals for explicit adoption. Preview cleanup
+with `dibs sweep`; `dibs sweep --confirm` acts only on eligible leased terminals.
 
 ## Safety
 

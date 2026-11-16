@@ -59,12 +59,19 @@ func bind(value string, stale time.Duration, now time.Time) (Reference, error) {
 	return o, nil
 }
 
-func ProcessIdentity(pid int) (string, Liveness) {
+func ProcessIdentity(pid int) (string, Liveness) { return processIdentity(pid, false) }
+
+// AnyProcessIdentity also inspects processes this user may not signal, such as a terminal's root-owned login.
+func AnyProcessIdentity(pid int) (string, Liveness) { return processIdentity(pid, true) }
+
+func processIdentity(pid int, otherUsers bool) (string, Liveness) {
 	if err := syscall.Kill(pid, 0); err != nil {
 		if errors.Is(err, syscall.ESRCH) {
 			return "", Dead
 		}
-		return "", Unknown
+		if !otherUsers || !errors.Is(err, syscall.EPERM) {
+			return "", Unknown
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

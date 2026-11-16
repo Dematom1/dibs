@@ -30,6 +30,14 @@ type ResourceRef struct {
 	Claim          string   `json:"treehouse_lease_id,omitempty"`
 	Holder         string   `json:"treehouse_lease_holder,omitempty"`
 	ExcludeRemotes []string `json:"landed_exclude_remotes,omitempty"`
+	// Terminal pins an adopted terminal's server and direct child process so a reused ID is never reclaimed by guess.
+	Terminal *TerminalPin `json:"terminal,omitempty"`
+}
+
+type TerminalPin struct {
+	Server string `json:"server"`
+	PID    int    `json:"pid"`
+	Start  string `json:"start"`
 }
 
 // ProcessRef pins a host process and the descendants recorded with it, each by
@@ -122,6 +130,24 @@ type Definition struct {
 	// Activity reports current use; an error means unknown, which keeps the lease.
 	// Optional: without it a resource is never busy and its idle time is unknown.
 	Activity func(context.Context, Target) (Activity, error)
+	// Terminal is set only by terminal adapters, which enter leases through adopt and stay behind an opt-in.
+	Terminal *TerminalSupport
+}
+
+// TerminalSupport resolves a terminal server to its canonical pinned form,
+// validates the tool's own ID syntax, and names what a reclaim would close.
+type TerminalSupport struct {
+	ResolveServer func(context.Context, string) (string, error)
+	ValidID       func(string) bool
+	Describe      func(ResourceRef) string
+}
+
+// ValidName applies a terminal adapter's ID syntax, and the Docker resource name rule otherwise.
+func (d Definition) ValidName(name string) bool {
+	if d.Terminal != nil {
+		return d.Terminal.ValidID(name)
+	}
+	return ValidResourceName(name)
 }
 
 type Registry struct{ definitions []Definition }
@@ -129,7 +155,8 @@ type Registry struct{ definitions []Definition }
 func NewRegistry(definitions ...Definition) Registry {
 	seen := map[string]bool{}
 	for _, d := range definitions {
-		if d.Name == "" || seen[d.Name] || d.Adapter == nil || d.Prepare == nil || d.Validate == nil || d.Env == nil {
+		incompleteTerminal := d.Terminal != nil && (d.Terminal.ResolveServer == nil || d.Terminal.ValidID == nil || d.Terminal.Describe == nil || d.Discover == nil || d.CreateAllowed)
+		if d.Name == "" || seen[d.Name] || d.Adapter == nil || d.Prepare == nil || d.Validate == nil || d.Env == nil || incompleteTerminal {
 			panic("incomplete or duplicate resource adapter")
 		}
 		seen[d.Name] = true

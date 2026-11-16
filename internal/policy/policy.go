@@ -64,6 +64,10 @@ func Defaults() map[string]Policy {
 		// A worktree slot belongs to its task while the owner lives; cleanup never discards unlanded work.
 		"treehouse-worktree": {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
 	}
+	// Closing a terminal ends its shell, so a terminal lives exactly as long as its owner.
+	for _, terminal := range []string{"tmux", "herdr", "rex", "treehouse-subshell"} {
+		rows[terminal] = Policy{Binding: Owner, TTL: 8 * time.Hour, Action: Destroy}
+	}
 	for key, p := range rows {
 		p.Row = key
 		rows[key] = p

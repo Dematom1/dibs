@@ -53,7 +53,7 @@ func decide(ctx context.Context, l Lease, host string, now time.Time, check func
 		return v
 	}
 	p := l.Policy
-	shell := l.ResourceRef.Adapter == "shell" && l.ResourceRef.Process != nil
+	shell := holdsShell(l.ResourceRef)
 	var grace time.Duration
 	if p != nil {
 		grace = p.Grace
@@ -129,6 +129,12 @@ func decide(ctx context.Context, l Lease, host string, now time.Time, check func
 		v.Reclaim = true
 	}
 	return v
+}
+
+// holdsShell reports a lease whose cleanup ends a shell, directly or by closing
+// its terminal; it is owner-bound even without a recorded policy.
+func holdsShell(ref adapterpkg.ResourceRef) bool {
+	return (ref.Adapter == "shell" && ref.Process != nil) || ref.Terminal != nil
 }
 
 func earliest(times []time.Time, grace time.Duration) time.Time {

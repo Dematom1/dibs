@@ -84,8 +84,13 @@ func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, bool, error
 		l.PendingFile = r.File
 	}
 	d, ok := m.options.Adapters.Lookup(r.Resource.Adapter)
-	if !ok || d.RequiresFile != (r.File != "") || (d.Discover == nil && !d.VerifiesAdoption) {
+	if !ok || d.RequiresFile != (r.File != "") || (d.Discover == nil && !d.VerifiesAdoption) || (d.Terminal != nil) != (r.Resource.Terminal != nil) {
 		return Lease{}, false, errors.New("unsupported adoption target or missing Compose file")
+	}
+	if d.Terminal != nil {
+		if held, ok := sameTerminalLease(ctx, s, d, r, now); ok {
+			return detached(held), true, nil
+		}
 	}
 	var related []adapterpkg.ResourceRef
 	if d.VerifiesAdoption {
@@ -116,17 +121,20 @@ func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, bool, error
 }
 
 // sameAdopted matches a keyed adoption retry: a pooled worktree by slot path and
-// allocator token, any other resource by name.
+// allocator token, a terminal by server and ID, any other resource by name.
 func sameAdopted(recorded, requested adapterpkg.ResourceRef) bool {
 	if requested.Path != "" {
 		return recorded.Path == requested.Path && recorded.Claim == requested.Claim
+	}
+	if recorded.Terminal != nil || requested.Terminal != nil {
+		return recorded.Name == requested.Name && recorded.Terminal != nil && requested.Terminal != nil && recorded.Terminal.Server == requested.Terminal.Server
 	}
 	return recorded.Name == requested.Name
 }
 
 // verifyDiscovered requires an unleased resource that discovery finds by name.
 func (m *Manager) verifyDiscovered(ctx context.Context, s *store, d adapterpkg.Definition, r adapterpkg.ResourceRef) error {
-	if !adapterpkg.ValidResourceName(r.Name) {
+	if !d.ValidName(r.Name) {
 		return errors.New("unsupported adoption target or missing Compose file")
 	}
 	leased := refuse("already_leased", "resource is already under a lease; inspect dibs ps")
@@ -157,6 +165,29 @@ func (m *Manager) verifyDiscovered(ctx context.Context, s *store, d adapterpkg.D
 	}
 	return nil
 }
+
+// sameTerminalLease makes an unkeyed terminal adopt retry idempotent. It matches
+// only the same owner, the same terminal and server, and the shell the lease
+// pinned, so a reused ID or a different owner is still refused.
+func sameTerminalLease(ctx context.Context, s *store, d adapterpkg.Definition, r AdoptRequest, now time.Time) (Lease, bool) {
+	for _, id := range s.IDs() {
+		l := s.Leases[id]
+		pin := l.ResourceRef.Terminal
+		if pin == nil || l.ResourceRef.Adapter != r.Resource.Adapter || l.ResourceRef.Name != r.Resource.Name || pin.Server != r.Resource.Terminal.Server || !sameOwner(l.Owner, r.Owner) || !now.Before(l.Expires) {
+			continue
+		}
+		rows, err := d.Discover(ctx, r.Resource)
+		if err != nil {
+			return Lease{}, false
+		}
+		for _, row := range rows {
+			if row["name"] == r.Resource.Name && row["pid"] == pin.PID && row["start"] == pin.Start {
+				return l, true
+			}
+		}
+	}
+	return Lease{}, false
+}
 func (m *Manager) Orphans(ctx context.Context, r adapterpkg.ResourceRef) ([]map[string]any, error) {
 	rows := []map[string]any{}
 	for _, name := range m.options.Adapters.CreateNames() {
@@ -170,6 +201,11 @@ func (m *Manager) Orphans(ctx context.Context, r adapterpkg.ResourceRef) ([]map[
 		}
 		rows = append(rows, found...)
 	}
+	return m.Unleased(ctx, r, rows)
+}
+
+// Unleased filters discovered rows to those no lease in the snapshot covers, comparing within r's scope.
+func (m *Manager) Unleased(ctx context.Context, r adapterpkg.ResourceRef, rows []map[string]any) ([]map[string]any, error) {
 	dir := m.options.Directory
 	var err error
 	if dir == "" {

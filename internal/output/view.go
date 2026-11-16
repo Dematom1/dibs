@@ -37,6 +37,9 @@ func LeaseView(l leasepkg.Lease, live ownerpkg.Liveness, now time.Time, kubeconf
 	if l.ResourceRef.Path != "" {
 		view["path"] = l.ResourceRef.Path
 	}
+	if pin := l.ResourceRef.Terminal; pin != nil {
+		view["terminal"] = map[string]any{"server": pin.Server, "pid": pin.PID, "start": pin.Start}
+	}
 	view["cores"], view["memory"], view["memory_bytes"], view["class"] = 0, "0B", int64(0), ""
 	if l.Reservation != nil {
 		view["cores"], view["memory"], view["memory_bytes"], view["class"] = l.Reservation.Budget.Cores, strconv.FormatInt(l.Reservation.Budget.Memory, 10)+"B", l.Reservation.Budget.Memory, l.Reservation.Class

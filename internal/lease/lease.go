@@ -57,7 +57,7 @@ func reclaimable(l Lease, host string, now time.Time, check func(ownerpkg.Refere
 		return false, ownerpkg.Unknown
 	}
 	live := check(l.Owner, now)
-	if (l.ResourceRef.Adapter == "shell" && l.ResourceRef.Process != nil) || l.ProtectLiveOwner || l.Policy.OwnerBound() {
+	if holdsShell(l.ResourceRef) || l.ProtectLiveOwner || l.Policy.OwnerBound() {
 		return live == ownerpkg.Dead, live
 	}
 	return live == ownerpkg.Dead || !now.Before(l.Expires), live
@@ -187,6 +187,8 @@ type SweepResult struct {
 	Failures  map[string]string `json:"failures"`
 	// Held maps leases whose reclaim condition fired to the reason they are kept.
 	Held map[string]string `json:"held,omitempty"`
+	// Targets names the terminal each eligible terminal lease would close.
+	Targets map[string]string `json:"targets,omitempty"`
 }
 
 // sweep returns eligible leases whose cleanup must run outside the state lock
@@ -214,7 +216,14 @@ func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bo
 			continue
 		}
 		r.Eligible = append(r.Eligible, id)
-		if d, ok := adapters.Lookup(l.ResourceRef.Adapter); confirm && ok && d.CleanupOutsideLock {
+		d, ok := adapters.Lookup(l.ResourceRef.Adapter)
+		if ok && d.Terminal != nil {
+			if r.Targets == nil {
+				r.Targets = map[string]string{}
+			}
+			r.Targets[id] = d.Terminal.Describe(l.ResourceRef)
+		}
+		if confirm && ok && d.CleanupOutsideLock {
 			if c, err := markReleasing(s, l); err != nil {
 				r.Failures[id] = err.Error()
 			} else {

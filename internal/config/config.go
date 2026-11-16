@@ -48,6 +48,8 @@ type Config struct {
 	Policies      map[string]policypkg.Row `json:"policies"`
 	// TreehouseWorktree allows new treehouse-worktree leases.
 	TreehouseWorktree bool `json:"treehouse_worktree_adapter"`
+	// TerminalAdapters opts in to terminal adoption and discovery; DIBS_TERMINAL_ADAPTERS overrides it.
+	TerminalAdapters []string `json:"terminal_adapters,omitempty"`
 }
 
 func hostMemory() (int64, error) {
@@ -175,13 +177,14 @@ func read() ([]byte, bool, error) {
 }
 
 type optIns struct {
-	PROwner             bool `json:"pr_owner"`
-	LiveOwnerProtection bool `json:"live_owner_protection"`
-	ConsumerContract    bool `json:"consumer_contract"`
-	ExecOwner           bool `json:"exec_owner"`
-	ShellAdapter        bool `json:"shell_adapter"`
-	LeasePolicies       bool `json:"lease_policies"`
-	TreehouseWorktree   bool `json:"treehouse_worktree_adapter"`
+	PROwner             bool     `json:"pr_owner"`
+	LiveOwnerProtection bool     `json:"live_owner_protection"`
+	ConsumerContract    bool     `json:"consumer_contract"`
+	ExecOwner           bool     `json:"exec_owner"`
+	ShellAdapter        bool     `json:"shell_adapter"`
+	LeasePolicies       bool     `json:"lease_policies"`
+	TreehouseWorktree   bool     `json:"treehouse_worktree_adapter"`
+	TerminalAdapters    []string `json:"terminal_adapters"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -214,6 +217,9 @@ func LeasePolicies() bool { return readOptIns().LeasePolicies }
 
 // TreehouseWorktree reports the treehouse_worktree_adapter opt-in.
 func TreehouseWorktree() bool { return readOptIns().TreehouseWorktree }
+
+// TerminalAdapters reports the terminal_adapters opt-in list.
+func TerminalAdapters() []string { return readOptIns().TerminalAdapters }
 
 // Policies strictly reads the configured policy rows without probing the host,
 // so a malformed table is an error rather than a silent default.

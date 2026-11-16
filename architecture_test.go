@@ -17,12 +17,13 @@ type listedPackage struct {
 
 func TestPackageGraph(t *testing.T) {
 	allowed := map[string]string{
-		"cli":          "lease owner adapter adapter/none adapter/kind adapter/k3d adapter/compose adapter/shell adapter/treehouseworktree policy job config output remote budget atomicfile compat",
+		"cli":          "lease owner adapter adapter/none adapter/kind adapter/k3d adapter/compose adapter/shell adapter/treehouseworktree adapter/terminal adapter/tmux adapter/herdr adapter/rex adapter/treehousesubshell policy job config output remote budget atomicfile compat",
 		"job":          "lease owner budget config output remote",
 		"remote":       "config output",
 		"output":       "lease owner config budget compat",
 		"lease":        "adapter owner policy budget atomicfile compat",
 		"adapter/none": "adapter", "adapter/kind": "adapter", "adapter/k3d": "adapter", "adapter/compose": "adapter atomicfile", "adapter/shell": "adapter", "adapter/treehouseworktree": "adapter",
+		"adapter/terminal": "adapter owner", "adapter/tmux": "adapter adapter/terminal", "adapter/herdr": "adapter adapter/terminal", "adapter/rex": "adapter adapter/terminal", "adapter/treehousesubshell": "adapter adapter/terminal",
 		"config": "budget policy compat", "policy": "", "adapter": "", "owner": "", "budget": "", "atomicfile": "", "compat": "",
 	}
 	const prefix = "github.com/Dematom1/dibs/internal/"
