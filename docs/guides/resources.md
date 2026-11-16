@@ -211,9 +211,10 @@ each process's start time immediately before each signal round (with a remaining
 race between that read and the signal), and forgets the lease only after
 every member is gone. A shell that has already exited is verified gone.
 
-Pane shells and treehouse subshells are ordinary shells found by PID. This
-adapter does not drive tmux, herdr, or rex. A terminal lease that closes a pane
-hangs up its shell, and the shell lease then finds its shell gone.
+Agent terminal adapters lease and close opted-in tmux, herdr, rex, and
+treehouse subshell terminals directly; they are separate from the PID-based
+shell adapter described above. See [Lease agent terminals](../../README.md#lease-agent-terminals)
+for opt-in and caller workflow.
 
 ## Lease a pooled worktree
 

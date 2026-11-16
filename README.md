@@ -64,7 +64,7 @@ returned lease ID and release it when closing the terminal:
 
 ```sh
 dibs adopt <type> <id> --owner KIND:ID --ttl D
- dibs release <lease-id> --confirm
+dibs release <lease-id> --confirm
 ```
 
 Add `--server` when needed and optionally `--key` for an idempotent retry. Dibs
