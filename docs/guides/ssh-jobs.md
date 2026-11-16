@@ -73,4 +73,3 @@ checkout and its dependencies, the matching Linux binary, and a remote dibs
 config with a budget partition that leaves owner room and avoids other
 schedulers. Configure an sshd keepalive policy and a per-user sweep timer.
 Kubernetes-backed machines remain deferred.
-

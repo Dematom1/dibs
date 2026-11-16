@@ -31,4 +31,3 @@ with identical stdout and exit codes, plus one stderr deprecation line naming
 `dibs`. Existing berth-named leases remain reclaimable. See the [rename release
 notes](../releases/rename-to-dibs.md) for compatibility details and
 repository-rename ordering.
-

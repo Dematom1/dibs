@@ -98,4 +98,3 @@ Build with `nix build`, or use
 The flake provides `packages.<system>.dibs` for `x86_64-linux`, `aarch64-linux`,
 and `aarch64-darwin` for NixOS or home-manager package lists. Its binary reports
 the version in `.release-please-manifest.json`.
-

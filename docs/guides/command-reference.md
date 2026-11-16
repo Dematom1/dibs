@@ -113,4 +113,3 @@ help, budget summaries, and errors are in
 child stdout/stderr passthrough, quiet IDs, shell exports, and setup/removal under
 a temporary HOME. To update snapshots after an intentional format change, run
 `UPDATE_GOLDEN=1 go test ./...` and review the fixture diff.
-

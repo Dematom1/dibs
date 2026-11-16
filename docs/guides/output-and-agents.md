@@ -60,4 +60,3 @@ Setup respects `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, and
 hook receive a short instruction to use `dibs --axi` instead. Agents without
 these integrations still get AXI when they capture stdout through a pipe.
 No shell profile changes or executable shims are installed.
-

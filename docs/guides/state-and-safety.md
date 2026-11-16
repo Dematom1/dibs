@@ -102,4 +102,3 @@ Worktree transport and Kubernetes-backed machines are deferred. A resident
 scheduler is not required for these leases; revisit it only when measured queue
 fairness or push-event requirements cannot be met by CLI invocations and host
 timers.
-

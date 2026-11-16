@@ -82,4 +82,3 @@ class independently. Memory accepts integer bytes or `KiB`, `MiB`, `GiB`, `KB`,
 durations. Config edits apply to new invocations; existing reservations still
 count, and running jobs keep their original deadline. Use the same config and
 state directory for every cooperating invocation on a machine.
-

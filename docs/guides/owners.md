@@ -212,4 +212,3 @@ Shell leases are owner-bound even without a recorded policy: TTL expiry never re
 shows the governing policy (`source: lease`, or `legacy` for a lease acquired
 without one), the condition that fired, when the next condition ends
 (`reclaim_at`, `remaining`), and why the lease is still held (`held_because`).
-
