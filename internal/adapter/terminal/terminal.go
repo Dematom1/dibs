@@ -192,12 +192,20 @@ func (r resource) prepare(ctx context.Context, request adapterpkg.PrepareRequest
 	if live != ownerpkg.Alive || start == "" {
 		return adapterpkg.ResourceRef{}, fmt.Errorf("%s %s process %d is not alive and inspectable; adoption refused", r.driver.Noun, existing.Name, p.PID)
 	}
-	return adapterpkg.ResourceRef{Adopted: true, Adapter: r.driver.Name, Name: existing.Name, Terminal: &adapterpkg.TerminalPin{Server: server, PID: p.PID, Start: start}}, nil
+	pin := &adapterpkg.TerminalPin{Server: server, PID: p.PID, Start: start}
+	if p.ChildPID > 0 {
+		childStart, childLive := r.sys.Process(p.ChildPID)
+		if childLive != ownerpkg.Alive || childStart == "" {
+			return adapterpkg.ResourceRef{}, fmt.Errorf("%s %s held shell %d is not alive and inspectable; adoption refused", r.driver.Noun, existing.Name, p.ChildPID)
+		}
+		pin.ChildPID, pin.ChildStart = p.ChildPID, childStart
+	}
+	return adapterpkg.ResourceRef{Adopted: true, Adapter: r.driver.Name, Name: existing.Name, Terminal: pin}, nil
 }
 
 func (r resource) validate(_ string, _ adapterpkg.Metadata, ref adapterpkg.ResourceRef) error {
 	pin := ref.Terminal
-	if !ref.Adopted || !r.driver.ValidID(ref.Name) || pin == nil || pin.Server == "" || pin.PID <= 0 || pin.Start == "" || ref.Context != "" || ref.DockerHost != "" || ref.File != "" {
+	if !ref.Adopted || !r.driver.ValidID(ref.Name) || pin == nil || pin.Server == "" || pin.PID <= 0 || pin.Start == "" || (pin.ChildPID == 0) != (pin.ChildStart == "") || pin.ChildPID < 0 || ref.Context != "" || ref.DockerHost != "" || ref.File != "" {
 		return errors.New("invalid adopted terminal identity")
 	}
 	return nil
@@ -260,11 +268,15 @@ func (r resource) observe(ctx context.Context, ref adapterpkg.ResourceRef) (stat
 // both the terminal and its pinned process are verified gone.
 func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	s, p, err := r.observe(ctx, t.Ref)
-	if err != nil || s == absent {
+	if err != nil {
 		return err
 	}
-	childPID, childStart := 0, ""
-	if s == owned && p.ChildPID > 0 {
+	pin := t.Ref.Terminal
+	childPID, childStart := pin.ChildPID, pin.ChildStart
+	if s == absent {
+		return r.settleChild(ctx, childPID, childStart)
+	}
+	if s == owned && childPID == 0 && p.ChildPID > 0 {
 		var live ownerpkg.Liveness
 		childStart, live = r.sys.Process(p.ChildPID)
 		if live == ownerpkg.Unknown {
@@ -272,6 +284,18 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 		}
 		if live == ownerpkg.Alive {
 			childPID = p.ChildPID
+		}
+	}
+	if s == owned && childPID > 0 {
+		if p.ChildPID != childPID {
+			return fmt.Errorf("%s %s no longer carries held shell %d; touching nothing, lease retained", r.driver.Noun, t.Ref.Name, childPID)
+		}
+		current, live := r.sys.Process(childPID)
+		if live == ownerpkg.Unknown {
+			return fmt.Errorf("cannot inspect held shell %d; lease retained", childPID)
+		}
+		if live == ownerpkg.Alive && current != childStart {
+			return fmt.Errorf("%s %s carries reused held-shell pid %d; touching nothing, lease retained", r.driver.Noun, t.Ref.Name, childPID)
 		}
 	}
 	if s == owned {

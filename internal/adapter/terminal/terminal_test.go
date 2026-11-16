@@ -88,6 +88,16 @@ func target(id string) adapterpkg.Target {
 	return adapterpkg.Target{Ref: adapterpkg.ResourceRef{Adopted: true, Adapter: "fake", Name: id, Terminal: &adapterpkg.TerminalPin{Server: "/sock", PID: 100, Start: pinnedStart}}}
 }
 
+func TestPreparePinsHeldShellIdentity(t *testing.T) {
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart, 201: "shell-start"}, childPID: 201}
+	d := New(w.driver(), w.system())
+	existing := adapterpkg.ResourceRef{Adapter: "fake", Name: "%1", Adopted: true, Terminal: &adapterpkg.TerminalPin{Server: "/sock"}}
+	got, err := d.Prepare(context.Background(), adapterpkg.PrepareRequest{Existing: existing})
+	if err != nil || got.Terminal.ChildPID != 201 || got.Terminal.ChildStart != "shell-start" {
+		t.Fatalf("prepared child identity = %+v, %v", got.Terminal, err)
+	}
+}
+
 func TestDestroyDecisionTable(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -176,12 +186,14 @@ func TestPrepareValidateAndDescribe(t *testing.T) {
 		}
 	}
 	for name, mutate := range map[string]func(*adapterpkg.ResourceRef){
-		"not adopted":   func(r *adapterpkg.ResourceRef) { r.Adopted = false },
-		"no pin":        func(r *adapterpkg.ResourceRef) { r.Terminal = nil },
-		"no start":      func(r *adapterpkg.ResourceRef) { r.Terminal.Start = "" },
-		"no server":     func(r *adapterpkg.ResourceRef) { r.Terminal.Server = "" },
-		"docker scope":  func(r *adapterpkg.ResourceRef) { r.Context = "orbstack" },
-		"snapshot file": func(r *adapterpkg.ResourceRef) { r.File = "/tmp/x" },
+		"not adopted":             func(r *adapterpkg.ResourceRef) { r.Adopted = false },
+		"no pin":                  func(r *adapterpkg.ResourceRef) { r.Terminal = nil },
+		"no start":                func(r *adapterpkg.ResourceRef) { r.Terminal.Start = "" },
+		"child pid without start": func(r *adapterpkg.ResourceRef) { r.Terminal.ChildPID = 201 },
+		"child start without pid": func(r *adapterpkg.ResourceRef) { r.Terminal.ChildStart = "shell-start" },
+		"no server":               func(r *adapterpkg.ResourceRef) { r.Terminal.Server = "" },
+		"docker scope":            func(r *adapterpkg.ResourceRef) { r.Context = "orbstack" },
+		"snapshot file":           func(r *adapterpkg.ResourceRef) { r.File = "/tmp/x" },
 	} {
 		bad := target("%1").Ref
 		mutate(&bad)

@@ -116,9 +116,11 @@ func TestDestroyRetainsShellThatOutlivesHolder(t *testing.T) {
 		},
 		Sleep: func(time.Duration) {}, Grace: 0,
 	}
-	ref := adapterpkg.ResourceRef{Adopted: true, Adapter: "treehouse-subshell", Name: "200", Terminal: &adapterpkg.TerminalPin{Server: local, PID: 200, Start: "holder-start"}}
-	if err := New(sys).Adapter.Destroy(context.Background(), adapterpkg.Target{Ref: ref}); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
-		t.Fatalf("Destroy error = %v, want surviving shell to retain lease", err)
+	ref := adapterpkg.ResourceRef{Adopted: true, Adapter: "treehouse-subshell", Name: "200", Terminal: &adapterpkg.TerminalPin{Server: local, PID: 200, Start: "holder-start", ChildPID: 201, ChildStart: "shell-start"}}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := New(sys).Adapter.Destroy(context.Background(), adapterpkg.Target{Ref: ref}); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
+			t.Fatalf("Destroy attempt %d error = %v, want surviving shell to retain lease", attempt, err)
+		}
 	}
 }
 

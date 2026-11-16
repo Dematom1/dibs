@@ -72,6 +72,11 @@ does not hook terminal creation: skipped adopts leave terminals unleased, and
 `dibs orphans` lists unleased terminals for explicit adoption. Preview cleanup
 with `dibs sweep`; `dibs sweep --confirm` acts only on eligible leased terminals.
 
+AXI and JSON return the lease as `lease.id` and terminal identity as
+`lease.terminal` (`server`, `pid`, `start`; treehouse subshells also include
+`child_pid` and `child_start`). Same-owner adoption retries return the existing
+lease; use `dibs extend` to renew it.
+
 ## Safety
 
 - dibs acts only on resources that a lease covers. Unleased resources are never

@@ -35,9 +35,11 @@ type ResourceRef struct {
 }
 
 type TerminalPin struct {
-	Server string `json:"server"`
-	PID    int    `json:"pid"`
-	Start  string `json:"start"`
+	Server     string `json:"server"`
+	PID        int    `json:"pid"`
+	Start      string `json:"start"`
+	ChildPID   int    `json:"child_pid,omitempty"`
+	ChildStart string `json:"child_start,omitempty"`
 }
 
 // ProcessRef pins a host process and the descendants recorded with it, each by
