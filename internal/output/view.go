@@ -38,7 +38,11 @@ func LeaseView(l leasepkg.Lease, live ownerpkg.Liveness, now time.Time, kubeconf
 		view["path"] = l.ResourceRef.Path
 	}
 	if pin := l.ResourceRef.Terminal; pin != nil {
-		view["terminal"] = map[string]any{"server": pin.Server, "pid": pin.PID, "start": pin.Start}
+		terminal := map[string]any{"server": pin.Server, "pid": pin.PID, "start": pin.Start}
+		if pin.ChildPID > 0 && pin.ChildStart != "" {
+			terminal["child_pid"], terminal["child_start"] = pin.ChildPID, pin.ChildStart
+		}
+		view["terminal"] = terminal
 	}
 	view["cores"], view["memory"], view["memory_bytes"], view["class"] = 0, "0B", int64(0), ""
 	if l.Reservation != nil {

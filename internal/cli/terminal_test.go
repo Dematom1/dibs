@@ -64,6 +64,24 @@ func TestTerminalOptInGatesAdoptAndOrphans(t *testing.T) {
 	}
 }
 
+func TestOrphansRejectsUnknownTerminalOptIn(t *testing.T) {
+	unsetTerminalOptIn(t)
+	config := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(config, []byte(`{"terminal_adapters":["tmuxx"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DIBS_CONFIG", config)
+	state := filepath.Join(t.TempDir(), "untouched")
+	t.Setenv("DIBS_STATE", state)
+	var out bytes.Buffer
+	if code := run(context.Background(), []string{"--json", "orphans"}, &out); code != 2 || !strings.Contains(out.String(), `tmuxx`) || !strings.Contains(out.String(), "terminal_adapters") {
+		t.Fatalf("unknown terminal opt-in: code %d, %s", code, out.String())
+	}
+	if _, err := os.Stat(state); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("invalid terminal opt-in touched lease state")
+	}
+}
+
 func TestTerminalUsageBeforeSideEffects(t *testing.T) {
 	self := "pid:" + strconv.Itoa(os.Getpid())
 	t.Setenv("DIBS_TERMINAL_ADAPTERS", "tmux,herdr,rex,treehouse-subshell")
@@ -156,6 +174,23 @@ func TestTerminalOutputModes(t *testing.T) {
 					t.Errorf("%s %s lacks %q:\n%s", mode, name, fragment, out.String())
 				}
 			}
+		}
+	}
+}
+
+func TestTerminalChildIdentityView(t *testing.T) {
+	pin := &adapterpkg.TerminalPin{Server: "/sock", PID: 200, Start: "holder-start", ChildPID: 201, ChildStart: "shell-start"}
+	l := leasepkg.Lease{ResourceRef: adapterpkg.ResourceRef{Adapter: "treehouse-subshell", Name: "200", Terminal: pin}}
+	view := outputpkg.LeaseView(l, ownerpkg.Alive, l.Created, "")
+	terminal := view["terminal"].(map[string]any)
+	if terminal["child_pid"] != 201 || terminal["child_start"] != "shell-start" {
+		t.Fatalf("lease view lost held child identity: %#v", terminal)
+	}
+	for _, mode := range []outputpkg.Mode{outputpkg.Human, outputpkg.AXI, outputpkg.JSON} {
+		var out bytes.Buffer
+		outputpkg.Emit(&out, mode, map[string]any{"lease": view})
+		if !strings.Contains(out.String(), "201") || !strings.Contains(out.String(), "shell-start") {
+			t.Errorf("%s output lost held child identity: %s", mode, out.String())
 		}
 	}
 }

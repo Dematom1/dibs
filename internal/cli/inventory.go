@@ -160,10 +160,7 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	var terminals []string
 	if terminal || (command == "orphans" && kind == "") {
 		enabled, err := enabledTerminals(app.resources)
-		// Untyped orphans predates terminals and must not start failing on a config it never read.
-		if err != nil && !terminal {
-			enabled = nil
-		} else if err != nil {
+		if err != nil {
 			return outputpkg.Error(out, mode, 2, err.Error(), help(command))
 		}
 		terminals = enabled
