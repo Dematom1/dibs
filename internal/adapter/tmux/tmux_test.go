@@ -21,7 +21,7 @@ func fake(out, stderr string, code int, err error, calls *[][]string) terminalpk
 
 func TestListMapping(t *testing.T) {
 	var calls [][]string
-	panes, err := list(context.Background(), fake("%1\t42\tzsh\t/work\tdev:0.1\n%7\t43\tclaude\t/x\tdev:1.0\n", "", 0, nil, &calls), "/sock")
+	panes, err := list(context.Background(), fake("%1|42|zsh|/work|dev:0.1\n%7|43|claude|/x|dev:1.0\n", "", 0, nil, &calls), "/sock")
 	want := []terminalpkg.Pane{{ID: "%1", PID: 42, Command: "zsh", Dir: "/work", Label: "dev:0.1"}, {ID: "%7", PID: 43, Command: "claude", Dir: "/x", Label: "dev:1.0"}}
 	if err != nil || !reflect.DeepEqual(panes, want) {
 		t.Fatalf("panes %+v %v", panes, err)

@@ -146,7 +146,7 @@ func TestCloseErrorStillVerifiesHeldShell(t *testing.T) {
 		starts:    map[int]string{100: pinnedStart, 201: "shell-start"},
 		childPIDs: []int{201}, closeKills: true, closeErr: errors.New("close failed"),
 	}
-	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "held shell 201 survived cleanup") {
+	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "1 held child process(es) survived cleanup") {
 		t.Fatalf("Destroy error = %v, want surviving shell to retain lease", err)
 	}
 }
