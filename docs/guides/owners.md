@@ -69,7 +69,8 @@ GitHub Enterprise hosts work through `gh api --hostname`.
   as a new PR at the same path, means unknown. A renamed or transferred
   repository keeps working because GitHub redirects the old path.
 
-TTL and sweep stay the backstop. Expiry still reclaims an open PR's lease, so
+TTL and sweep stay the backstop. Expiry still reclaims an open PR's lease unless
+a lease policy binds that lease to its owner (see the policy table below), so
 extend it on the usual cadence. Dibs sees only the state at each check. It
 misses a close and reopen between two checks, and reopening a PR does not bring
 back a lease that sweep already reclaimed.
@@ -83,8 +84,10 @@ dibs sweep --confirm   # after the PR closes or merges
 
 Touch a heartbeat file at most every staleness/3. Extend a lease at the latest
 when one third of its TTL remains. A lease is reclaimable when its owner is
-dead **or** when it has expired. A live owner that misses either cadence loses
-its resources, except shell leases and protected leases. Unknown liveness alone
+dead **or** when it has expired. A live owner that misses its TTL renewal loses
+an unprotected time-bound lease at expiry; shell and protected leases stay held.
+A heartbeat older than its staleness makes the owner dead, so its shell and
+protected leases become reclaimable under the reclaim rule. Unknown liveness alone
 never permits reclaim for shell leases or protected leases; other time-bound
 leases may still be reclaimed at expiry. `extend` refuses expired leases and owners that are dead or unknown,
 except that a protected lease with a live owner reattaches after expiry while

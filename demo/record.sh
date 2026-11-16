@@ -23,9 +23,10 @@ trap 'rm -rf "$work"' EXIT
 curl -fsSL -o "$work/$archive" "$base/$archive"
 curl -fsSL -o "$work/checksums.txt" "$base/checksums.txt"
 (cd "$work" && grep " ${archive}\$" checksums.txt | shasum -a 256 -c -)
-mkdir "$work/bin" "$work/state"
+mkdir "$work/bin" "$work/state" "$work/home/.config"
 tar -xzf "$work/$archive" -C "$work/bin" dibs
 
-# The tape runs in a shell that inherits these, so it sees only this binary and an empty state dir.
+# The tape runs in a shell that inherits these, so it sees only this binary, an empty state dir,
+# and a temporary home, so no user config (such as lease_policies) can change what is recorded.
 cd "$repo_root"
-DIBS_STATE="$work/state" PATH="$work/bin:$PATH" vhs demo/demo.tape
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" DIBS_STATE="$work/state" PATH="$work/bin:$PATH" vhs demo/demo.tape

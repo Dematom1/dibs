@@ -26,7 +26,8 @@ for the same state and do not name the versions.
 State schema version 3 is version 2 plus at least one lease with live-owner
 protection. Older binaries reject it rather than ignoring the protection and
 reclaiming the lease at expiry. The state returns to version 2 once no
-protected lease remains, unless a keyed or pending lease keeps it at version 4.
+protected lease remains, unless a keyed or pending lease keeps it at version 4,
+or a lease with a policy, an owner-death stamp, or a shell keeps it at version 5.
 
 State schema version 4 adds the consumer contract's idempotency keys and pending
 leases. Dibs writes version 4 while any lease has a key or is pending, version 3

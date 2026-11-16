@@ -20,10 +20,13 @@ connection timeout, and keepalives every 5 seconds with 3 unanswered probes.
 }
 ```
 
-Build a trusted binary for the remote OS and architecture, then install it:
+Build a trusted binary for the remote OS and architecture, then install it. The
+remote binary must report the same version as the local `dibs --version`, so the
+build sets `main.version` to it:
 
 ```sh
- GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dibs-linux .
+ VERSION=$(dibs --version)
+ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$VERSION" -o /tmp/dibs-linux .
  dibs machine install lenovo --file /tmp/dibs-linux
  dibs job --machine lenovo --class suite -- go test ./...
  dibs ps --machine lenovo
@@ -55,8 +58,10 @@ exit code separately. Child exit 255 is preserved rather than mistaken for an
 SSH transport failure.
 
 The agent is the lease's `session:<holder-pid>` owner. EOF on its SSH stdin or
-session cancellation kills the job's process group and releases its lease,
-including while admission is waiting. An idle local stdin does not end the SSH
+session cancellation attempts to kill the job's process group and release its
+lease, including while admission is waiting. If the group's identity cannot be
+verified, dibs sends no group signal and keeps the lease for retry. Descendants
+can survive under the process-group exception in [ADR 0002](../adr/0002-reclaim-with-proof.md#existing-process-exception). An idle local stdin does not end the SSH
 session. For broken-network detection on the server, configure sshd's
 `ClientAliveInterval` and `ClientAliveCountMax`, for example 5 and 3. Client
 keepalives alone do not bound how long the server waits for a lost client.

@@ -68,11 +68,12 @@ heartbeat paths, numeric PID spellings, and PR selector forms (lowercased
 | `2` | Invalid command, argument, or flag; no child was started |
 | `3` | `dibs extend` refused a protected lease; with the consumer contract on, any refusal by a contract command, `extend`, or `release`. Nothing changed; see `reason` |
 | Child's code | `dibs job` when its child runs to completion |
-| `124` | `dibs job` deadline killed the child (coreutils `timeout` convention) |
+| `124` | `dibs job` deadline fired before dibs confirmed the child had exited. dibs stops the child, but if it cannot verify completion the child may already have exited (coreutils `timeout` convention) |
 | `75` | `dibs job`: no slot frees within `--wait`, `EX_TEMPFAIL` |
 | `128 + signal` | Child terminated by a signal, e.g. 143 for SIGTERM |
 | `125` | Job child started, but its wait status could not be obtained |
-| `76` | SSH transport or protocol failed; the remote result is unknown |
+| `126` | `dibs job` could not execute the child, so no child ran |
+| `76` | SSH transport or protocol failed, with the stderr line `SSH transport/protocol failed; remote result unknown`. A remote child that exits 76 itself returns 76 with its authoritative result and no such line |
 
 `dibs job` uses dibs's own codes 1 and 2 only when no user child was started.
 Child completion passes through the child's code even when it overlaps these

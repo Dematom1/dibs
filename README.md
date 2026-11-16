@@ -21,6 +21,7 @@ Install with Go 1.26 or later: `go install github.com/Dematom1/dibs@latest`.
 Nix, release archives, and checkout builds are in [docs/guides/install.md](docs/guides/install.md).
 
 ```sh
+export DIBS_STATE="$(mktemp -d)"       # a throwaway state dir, so sweep cannot touch your own leases
 sleep 600 & WORKER=$!                  # a process that will own the lease
 dibs create --adapter none --owner pid:$WORKER --ttl 2h --resources 'demo worker' --label task=demo
 dibs ps --json | jq '.leases[] | {id, owner, liveness, expires}'
@@ -32,8 +33,9 @@ dibs release $LEASE                    # preview
 dibs release $LEASE --confirm          # release it
 ```
 
-These are the commands in the demo. `dibs ps` prints a wide table on a terminal,
-so the demo filters its JSON with `jq`.
+These are the commands in the demo, which also starts from an empty state
+directory. `dibs ps` prints a wide table on a terminal, so the demo filters its
+JSON with `jq`.
 
 ## What it leases
 
@@ -58,7 +60,8 @@ and [docs/guides/jobs.md](docs/guides/jobs.md).
   swept, and adoption is an explicit `dibs adopt`.
 - Reclaim needs proof: a dead owner or an expired lease. Unknown owner liveness
   alone never reclaims, and a host acts only on its own leases.
-- A lease is forgotten only after its resource is destroyed and verified gone.
+- A lease is forgotten only after its resource is destroyed and verified gone,
+  except the documented [process-group exception](docs/adr/0002-reclaim-with-proof.md#existing-process-exception).
   Cleanup intent is saved before the resource is created.
 
 dibs is a cooperation protocol, not a security boundary against programs running
