@@ -187,6 +187,10 @@ func TestIntegrationTmuxTerminalLeases(t *testing.T) {
 
 	// A restarted server reuses pane IDs for new shells; dibs must forget the stale lease without touching them.
 	lab.tmux("kill-server")
+	// tmux 3.4 can leave the socket behind after the server exits.
+	if err := os.Remove(lab.socket); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
 	owners["%2"].Process.Kill()
 	owners["%2"].Wait()
 	second := lab.start()
