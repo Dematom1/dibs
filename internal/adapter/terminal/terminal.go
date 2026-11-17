@@ -45,6 +45,9 @@ type Driver struct {
 	// Hangup signals the terminal's shell. Nil sends SIGHUP to the pinned process.
 	Hangup func(ctx context.Context, sys System, p Pane)
 	Close  func(ctx context.Context, sys System, server string, p Pane) error
+	// StableIDs marks a tool that never reuses terminal IDs, so a terminal still
+	// listed without any process after ours died can only be ours and may be closed.
+	StableIDs bool
 }
 
 // System holds every side effect so each mapping branch is testable without the real tool.
@@ -107,7 +110,7 @@ type resource struct {
 
 func New(d Driver, sys System) adapterpkg.Definition {
 	r := resource{d, sys}
-	return adapterpkg.Definition{Name: d.Name, Adapter: r, Discover: r.discover, Prepare: r.prepare, Validate: r.validate,
+	return adapterpkg.Definition{Name: d.Name, Adapter: r, Discover: r.discover, Prepare: r.prepare, Validate: r.validate, Exists: r.exists,
 		Env: func(adapterpkg.ResourceRef) adapterpkg.Environment { return adapterpkg.Environment{} },
 		Terminal: &adapterpkg.TerminalSupport{
 			ResolveServer: func(ctx context.Context, requested string) (string, error) {
@@ -266,10 +269,22 @@ func (r resource) observe(ctx context.Context, ref adapterpkg.ResourceRef) (stat
 		return 0, Pane{}, fmt.Errorf("pinned process %d is alive but %s %s no longer carries it; touching nothing, lease retained", pin.PID, r.driver.Noun, ref.Name)
 	case live == ownerpkg.Alive && carries:
 		return 0, Pane{}, fmt.Errorf("%s %s carries reused pid %d; touching nothing, lease retained", r.driver.Noun, ref.Name, pin.PID)
+	case live == ownerpkg.Dead && carries && start != "" && start != pin.Start:
+		return 0, Pane{}, fmt.Errorf("%s %s carries reused pid %d; touching nothing, lease retained", r.driver.Noun, ref.Name, pin.PID)
 	case live == ownerpkg.Dead && carries:
 		return leftover, p, nil
+	case live == ownerpkg.Dead && found && p.PID == 0 && r.driver.StableIDs:
+		return leftover, p, nil
+	case live == ownerpkg.Dead && found && p.PID == 0:
+		return 0, Pane{}, fmt.Errorf("%s %s is still listed without a process; touching nothing, lease retained", r.driver.Noun, ref.Name)
 	}
 	return absent, Pane{}, nil
+}
+
+// exists reports whether the pinned terminal is still there; any doubt is an error, so renewal reads it as unknown.
+func (r resource) exists(ctx context.Context, t adapterpkg.Target) (bool, error) {
+	s, _, err := r.observe(ctx, t.Ref)
+	return err == nil && s != absent, err
 }
 
 // Destroy hangs up the shell, closes the terminal, and returns nil only after
@@ -284,23 +299,15 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 	if s == absent {
 		return r.settleChildren(ctx, children)
 	}
-	if s == owned && len(children) == 0 && len(p.ChildPIDs) > 0 {
-		for _, pid := range p.ChildPIDs {
-			start, live := r.sys.Process(pid)
-			if live == ownerpkg.Unknown {
-				return fmt.Errorf("cannot inspect held child %d; lease retained", pid)
-			}
-			if live == ownerpkg.Alive {
-				children = append(children, adapterpkg.TerminalChild{PID: pid, Start: start})
-			}
-		}
-	}
 	if s == owned {
+		// Only children pinned at adopt can be verified on a retry; Destroy cannot record new ones, so an unpinned child refuses.
 		if err := r.verifyCurrentChildren(p, children); err != nil {
 			return err
 		}
-	}
-	if s == owned {
+		// Recheck right before signalling to narrow the window in which the pinned PID could be reused.
+		if current, live := r.sys.Process(p.PID); live != ownerpkg.Alive || current != pin.Start {
+			return fmt.Errorf("pinned process %d changed before hangup; touching nothing, lease retained", p.PID)
+		}
 		if r.driver.Hangup != nil {
 			r.driver.Hangup(ctx, r.sys, p)
 		} else {

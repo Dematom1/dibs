@@ -125,6 +125,8 @@ func TestIntegrationTmuxTerminalLeases(t *testing.T) {
 	})
 	t.Setenv("DIBS_STATE", filepath.Join(dir, "state"))
 	t.Setenv("DIBS_TERMINAL_ADAPTERS", "tmux")
+	// The repeated-release assertions below are the pre-contract output; an exported contract opt-in must not change them.
+	t.Setenv("DIBS_CONSUMER_CONTRACT", "0")
 	first := lab.start()
 	if len(first) != 3 {
 		t.Fatalf("lab panes: %v", first)

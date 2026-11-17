@@ -85,6 +85,25 @@ func TestListLookupHangupClose(t *testing.T) {
 	}
 }
 
+func TestBareTreehouseIsASubshellHolder(t *testing.T) {
+	// Bare treehouse is documented as an alias for treehouse get.
+	var signals []string
+	sys := fake(t, map[string]reply{
+		all:                          {out: "  500     1 /usr/local/bin/treehouse\n  501   500 /bin/zsh -i -l\n  600     1 treehouse --version\n"},
+		"lsof -a -d cwd -Fpn -p 501": {out: "p501\nfcwd\nn/pool/5/repo\n"},
+	}, &signals)
+	want := []terminalpkg.Pane{{ID: "500", PID: 500, Label: "/usr/local/bin/treehouse", Command: "/bin/zsh -i -l", Dir: "/pool/5/repo", ChildPIDs: []int{501}}}
+	if panes, err := list(context.Background(), sys, local); err != nil || !reflect.DeepEqual(panes, want) {
+		t.Fatalf("bare treehouse must be listed: %+v %v", panes, err)
+	}
+	if p, found, err := lookup(context.Background(), sys, local, "500"); err != nil || !found || !reflect.DeepEqual(p.ChildPIDs, []int{501}) {
+		t.Fatalf("bare treehouse lookup: %+v %v %v", p, found, err)
+	}
+	if _, found, err := lookup(context.Background(), sys, local, "600"); err != nil || found {
+		t.Fatalf("a treehouse command with another argument is not a holder: %v %v", found, err)
+	}
+}
+
 func TestDestroyTracksEveryChildWhenShellOutlivesHolder(t *testing.T) {
 	holderAlive, helperAlive := true, true
 	var signals []string

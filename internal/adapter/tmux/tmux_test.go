@@ -19,15 +19,31 @@ func fake(out, stderr string, code int, err error, calls *[][]string) terminalpk
 	}}
 }
 
+// byFormat answers list-panes by its -F format, so identity and display output can differ.
+func byFormat(outs map[string]string, calls *[][]string) terminalpkg.System {
+	return terminalpkg.System{Run: func(_ context.Context, _ []string, name string, args ...string) ([]byte, string, int, error) {
+		*calls = append(*calls, append([]string{name}, args...))
+		return []byte(outs[args[len(args)-1]]), "", 0, nil
+	}}
+}
+
 func TestListMapping(t *testing.T) {
 	var calls [][]string
-	panes, err := list(context.Background(), fake("%1|42|zsh|/work|dev:0.1\n%7|43|claude|/x|dev:1.0\n", "", 0, nil, &calls), "/sock")
+	panes, err := list(context.Background(), byFormat(map[string]string{identity: "%1 42\n%7 43\n", display: "%1|zsh|dev:0.1|/work\n%7|claude|dev:1.0|/x\n"}, &calls), "/sock")
 	want := []terminalpkg.Pane{{ID: "%1", PID: 42, Command: "zsh", Dir: "/work", Label: "dev:0.1"}, {ID: "%7", PID: 43, Command: "claude", Dir: "/x", Label: "dev:1.0"}}
 	if err != nil || !reflect.DeepEqual(panes, want) {
 		t.Fatalf("panes %+v %v", panes, err)
 	}
-	if !reflect.DeepEqual(calls[0], []string{"tmux", "-S", "/sock", "list-panes", "-a", "-F", format}) {
-		t.Fatalf("list must pin the socket: %v", calls[0])
+	if !reflect.DeepEqual(calls[0], []string{"tmux", "-S", "/sock", "list-panes", "-a", "-F", identity}) {
+		t.Fatalf("list must pin the socket and read identity first: %v", calls[0])
+	}
+	// A pane whose cwd holds a newline and a fake record must not add or retarget a pane; it can only garble display text.
+	forged := "%1|zsh|dev:0.1|/work\n%9|sh|x:0.0|/evil\n%7|claude|dev:1.0|/x\n"
+	if panes, err := list(context.Background(), byFormat(map[string]string{identity: "%1 42\n%7 43\n", display: forged}, &calls), "/sock"); err != nil || len(panes) != 2 || panes[0].PID != 42 || panes[1].PID != 43 || panes[1].Dir != "/x" {
+		t.Fatalf("free text forged a pane identity: %+v %v", panes, err)
+	}
+	if panes, err := list(context.Background(), byFormat(map[string]string{identity: "%1 42\n"}, &calls), "/sock"); err != nil || len(panes) != 1 || panes[0].PID != 42 || panes[0].Label != "" {
+		t.Fatalf("missing display text must leave identity intact: %+v %v", panes, err)
 	}
 	if panes, err := list(context.Background(), fake("", "", 0, nil, &calls), "/sock"); err != nil || len(panes) != 0 {
 		t.Fatalf("empty server: %v %v", panes, err)
@@ -43,9 +59,11 @@ func TestListMapping(t *testing.T) {
 		"permission denied": {stderr: "error connecting to /sock (Permission denied)\n", code: 1},
 		"other exit":        {stderr: "unknown command\n", code: 1},
 		"missing binary":    {err: errors.New("tmux did not complete: executable file not found"), code: -1},
-		"too few fields":    {out: "%1\t42\tzsh\n"},
-		"bad pane id":       {out: "1\t42\tzsh\t/w\tdev:0.0\n"},
-		"bad pid":           {out: "%1\tx\tzsh\t/w\tdev:0.0\n"},
+		"too few fields":    {out: "%1\n"},
+		"too many fields":   {out: "%1 42 zsh\n"},
+		"bad pane id":       {out: "1 42\n"},
+		"bad pid":           {out: "%1 x\n"},
+		"duplicate pane id": {out: "%1 42\n%1 43\n"},
 	} {
 		_, err := list(context.Background(), fake(tc.out, tc.stderr, tc.code, tc.err, &calls), "/sock")
 		if tc.absent != errors.Is(err, terminalpkg.ErrNoServer) || err == nil {

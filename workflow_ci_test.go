@@ -53,8 +53,22 @@ func hasRun(job any, command string) bool {
 	return false
 }
 
+// uncommented drops each line's shell comment, which starts at a word that begins with #, before commands are split.
+func uncommented(run string) string {
+	lines := strings.Split(run, "\n")
+	for i, line := range lines {
+		for j := 0; j < len(line); j++ {
+			if line[j] == '#' && (j == 0 || line[j-1] == ' ' || line[j-1] == '\t') {
+				lines[i] = line[:j]
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func installsPackage(run, packageName string) bool {
-	for _, command := range strings.FieldsFunc(run, func(r rune) bool { return r == '\n' || r == '&' || r == '|' || r == ';' }) {
+	for _, command := range strings.FieldsFunc(uncommented(run), func(r rune) bool { return r == '\n' || r == '&' || r == '|' || r == ';' }) {
 		fields := strings.Fields(strings.TrimSpace(command))
 		for i, field := range fields {
 			if strings.HasPrefix(field, "#") {
@@ -100,6 +114,9 @@ func TestInstallsPackage(t *testing.T) {
 		{"unrelated commands", "echo apt-get install; echo tmux", false},
 		{"comment", "# sudo apt-get install tmux", false},
 		{"inline comment", "sudo apt-get install -y # tmux", false},
+		{"commented-out CI command", "# sudo apt-get update && sudo apt-get install -y --no-install-recommends tmux && tmux -V", false},
+		{"trailing comment after a chain", "sudo apt-get update # && sudo apt-get install -y tmux", false},
+		{"real install after a commented line", "# install tmux\nsudo apt-get install -y tmux", true},
 		{"package in another command", "sudo apt-get install -y git && echo tmux", false},
 		{"not exact package", "sudo apt-get install tmux-tools", false},
 		{"update is not install", "sudo apt-get update tmux", false},

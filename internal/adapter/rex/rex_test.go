@@ -110,6 +110,15 @@ func TestServerResolution(t *testing.T) {
 	if _, err := resolveServer(context.Background(), empty, ""); err == nil {
 		t.Fatal("server without endpoint accepted")
 	}
+	// A remote server's block PIDs belong to another host's process table and must never be pinned here.
+	for _, endpoint := range []string{"tcp://10.0.0.5:7070", "ssh://laptop", "laptop:7070"} {
+		remote := terminalpkg.System{Run: func(context.Context, []string, string, ...string) ([]byte, string, int, error) {
+			return []byte(`{"endpoint":"` + endpoint + `"}`), "", 0, nil
+		}}
+		if _, err := resolveServer(context.Background(), remote, "laptop"); err == nil || !strings.Contains(err.Error(), "not a local unix socket") {
+			t.Fatalf("remote endpoint %s accepted: %v", endpoint, err)
+		}
+	}
 	if !blockID.MatchString(shell) || blockID.MatchString("block:1") || blockID.MatchString("session:"+shell[6:]) {
 		t.Fatal("block id syntax")
 	}

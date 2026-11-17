@@ -2,6 +2,7 @@ package lease
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -109,5 +110,57 @@ func TestTerminalAdoptionIsScopedToItsServer(t *testing.T) {
 	r, _ := sweep(ctx, s, l.Machine, time.Now(), false, dead, m.options.Adapters)
 	if len(r.Eligible) != 1 || !strings.HasPrefix(r.Targets[l.ID], "fake pane %1 on /a (pid "+strconv.Itoa(os.Getpid())) || len(s.Leases) != 1 {
 		t.Fatalf("dry run must name exactly what it would close and change nothing: %+v", r)
+	}
+}
+
+func TestKeyedAdoptNeverReusesAnUnkeyedTerminalLease(t *testing.T) {
+	ctx := context.Background()
+	m := testManager()
+	m.options.Directory = t.TempDir()
+	m.options.Adapters = adapterpkg.NewRegistry(fakeTerminals())
+	o, err := bindOwner("pid:"+strconv.Itoa(os.Getpid()), time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pane := adapterpkg.ResourceRef{Adapter: "fake", Name: "%1", Terminal: &adapterpkg.TerminalPin{Server: "/a"}}
+	if _, _, err := m.Adopt(ctx, AdoptRequest{Owner: o, TTL: time.Hour, Resource: pane}); err != nil {
+		t.Fatal(err)
+	}
+	// Returning the unkeyed lease would leave the key unrecorded, so a later request could bind it to another terminal.
+	if l, done, err := m.Adopt(ctx, AdoptRequest{Owner: o, TTL: time.Hour, Resource: pane, Key: "task-9:pane"}); err == nil || done {
+		t.Fatalf("a keyed adopt reused an unkeyed lease: %+v %v %v", l, done, err)
+	}
+	s, err := m.openStore(ctx, m.options.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, l := range s.Leases {
+		if l.Key != "" {
+			t.Fatalf("refused keyed adopt recorded key %q", l.Key)
+		}
+	}
+}
+
+func TestExpiredTerminalRenewalProvesTheTerminal(t *testing.T) {
+	now := time.Now()
+	alive := func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Alive }
+	expired := Lease{Machine: "m", Created: now.Add(-2 * time.Hour), Expires: now.Add(-time.Hour), TTL: time.Hour,
+		ResourceRef: adapterpkg.ResourceRef{Adopted: true, Adapter: "fake", Name: "%1", Terminal: &adapterpkg.TerminalPin{Server: "/a", PID: 1, Start: "s"}}}
+	for _, tc := range []struct {
+		present bool
+		err     error
+		status  string
+		reason  string
+	}{{present: true, status: Reattached}, {present: false, reason: ResourceAbsent}, {err: errors.New("cannot list"), reason: ResourceUnknown}} {
+		l := expired
+		status, err := extendLease(&l, "m", time.Hour, now, alive, func(Lease) (bool, error) { return tc.present, tc.err })
+		var refusal *RenewRefusal
+		if tc.reason != "" && (!errors.As(err, &refusal) || refusal.Reason != tc.reason) {
+			t.Fatalf("expired terminal renewal with present=%v err=%v: want %s, got %v", tc.present, tc.err, tc.reason, err)
+		}
+		if tc.status != "" && (err != nil || status != tc.status) {
+			t.Fatalf("expired terminal renewal of a present terminal: %q %v", status, err)
+		}
 	}
 }

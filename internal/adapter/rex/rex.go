@@ -65,6 +65,10 @@ func resolveServer(ctx context.Context, sys terminalpkg.System, requested string
 	if who.Endpoint == "" {
 		return "", errors.New("rex whoami reported no server endpoint")
 	}
+	// A remote server reports PIDs from another host's process table, which dibs must never signal here.
+	if !strings.HasPrefix(who.Endpoint, "unix://") {
+		return "", fmt.Errorf("rex server %s is not a local unix socket; only local rex servers can be leased", who.Endpoint)
+	}
 	return who.Endpoint, nil
 }
 
@@ -165,5 +169,6 @@ func closeBlock(ctx context.Context, sys terminalpkg.System, server string, p te
 }
 
 func New(sys terminalpkg.System) adapterpkg.Definition {
-	return terminalpkg.New(terminalpkg.Driver{Name: "rex", Noun: "block", ValidID: blockID.MatchString, ResolveServer: resolveServer, List: list, Lookup: lookup, Close: closeBlock}, sys)
+	// Rex block IDs are UUIDs and never reused.
+	return terminalpkg.New(terminalpkg.Driver{Name: "rex", Noun: "block", ValidID: blockID.MatchString, ResolveServer: resolveServer, List: list, Lookup: lookup, Close: closeBlock, StableIDs: true}, sys)
 }

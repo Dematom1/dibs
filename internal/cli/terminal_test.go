@@ -133,6 +133,35 @@ func TestMissingTerminalToolIsUnavailableNotFatal(t *testing.T) {
 	}
 }
 
+func TestPlainOrphansReportsDockerUnavailableWhenTerminalsAreOn(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("PATH", "") // neither docker nor tmux can run
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DOCKER_CONTEXT", "")
+	t.Setenv("DIBS_TERMINAL_ADAPTERS", "tmux")
+	var out bytes.Buffer
+	if code := run(context.Background(), []string{"--json", "orphans", "--server", "/nonexistent/sock"}, &out); code == 0 {
+		t.Fatalf("--server without --type must still be refused: %s", out.String())
+	}
+	out.Reset()
+	if code := run(context.Background(), []string{"--json", "orphans"}, &out); code != 0 {
+		t.Fatalf("an unreachable Docker must not hide terminal inventory: code %d %s", code, out.String())
+	}
+	var result struct {
+		Unavailable map[string]string `json:"unavailable"`
+		Help        []string          `json:"help"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Unavailable["docker"] == "" || result.Unavailable["tmux"] == "" || !slices.ContainsFunc(result.Help, func(h string) bool { return strings.Contains(h, "Docker resources were not inventoried") }) {
+		t.Fatalf("Docker and tmux must both be reported unavailable with a next step: %s", out.String())
+	}
+	// Without a terminal opt-in, plain orphans keeps its Docker-only contract and fails as before.
+	t.Setenv("DIBS_TERMINAL_ADAPTERS", "")
+	out.Reset()
+	if code := run(context.Background(), []string{"--json", "orphans"}, &out); code != 1 {
+		t.Fatalf("Docker-only orphans must still exit 1 when Docker is unreachable: code %d %s", code, out.String())
+	}
+}
+
 func TestTerminalOutputModes(t *testing.T) {
 	row := map[string]any{"type": "tmux", "name": "%3", "server": "/tmp/s", "pid": 41, "start": "Thu Nov 12 02:31:42 2026", "command": "zsh", "label": "x:0.0", "dir": "/work"}
 	row["adopt"] = adoptionCommand(row)

@@ -87,7 +87,8 @@ func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, bool, error
 	if !ok || d.RequiresFile != (r.File != "") || (d.Discover == nil && !d.VerifiesAdoption) || (d.Terminal != nil) != (r.Resource.Terminal != nil) {
 		return Lease{}, false, errors.New("unsupported adoption target or missing Compose file")
 	}
-	if d.Terminal != nil {
+	// Only an unkeyed retry may reuse a lease; a new key must go through the claim checks so it is never left unrecorded.
+	if d.Terminal != nil && r.Key == "" {
 		if held, ok := sameTerminalLease(ctx, s, d, r, now); ok {
 			return detached(held), true, nil
 		}

@@ -123,7 +123,7 @@ With the consumer contract on (`DIBS_CONSUMER_CONTRACT=1` or `"consumer_contract
 
 An expired lease cannot come back. Create a new one instead. Test: `TestReclaimAndExtend`.
 
-A protected lease follows [Live-owner protection](#live-owner-protection) instead of the last rule. `Manager.Extend` reports `renewed` or `reattached` as the result's `status`.
+A protected lease, and a terminal lease, follows [Live-owner protection](#live-owner-protection) instead of the last rule: after expiry it reattaches only while its terminal is still present, as `observe` reads it. `Manager.Extend` reports `renewed` or `reattached` as the result's `status`.
 
 A non-positive `--ttl` is a usage error (exit 2) before any state access. With the consumer contract on, every other refusal exits 3 with a stable reason, adding `not_found`, `wrong_machine`, `job_deadline`, and `expired` to the protected-lease reasons; when an unprotected lease is expired and its owner is dead or unknown, the owner reason wins. Without it, those refusals keep exit 1. Tests: `TestRenewReleaseContractModes`, `TestCLIUnprotectedLateRenewUnchanged`.
 

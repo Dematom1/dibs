@@ -91,7 +91,8 @@ func extendLease(l *Lease, host string, ttl time.Duration, now time.Time, check 
 		return "", &RenewRefusal{Reason: "job_deadline", Message: "job deadlines cannot be extended; start a new dibs job with --timeout", Legacy: true}
 	}
 	status := Renewed
-	if !l.ProtectLiveOwner && !l.Policy.OwnerBound() {
+	// A terminal lease is owner-bound like reclaim treats it, so renewing it after expiry first proves the terminal is still there.
+	if !l.ProtectLiveOwner && !l.Policy.OwnerBound() && l.ResourceRef.Terminal == nil {
 		if reclaim, live := reclaimable(*l, host, now, check); reclaim || live != ownerpkg.Alive {
 			reason := "expired"
 			if live == ownerpkg.Dead {

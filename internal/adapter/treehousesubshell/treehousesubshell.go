@@ -62,10 +62,11 @@ func processes(ctx context.Context, sys terminalpkg.System, args ...string) ([]e
 	return entries, nil
 }
 
-// holder reports whether a command line is a treehouse process that opened a subshell.
+// holder reports whether a command line is a treehouse process that opened a
+// subshell: treehouse get, treehouse enter, or bare treehouse, an alias for get.
 func holder(command string) bool {
 	fields := strings.Fields(command)
-	return len(fields) >= 2 && filepath.Base(fields[0]) == "treehouse" && (fields[1] == "get" || fields[1] == "enter")
+	return len(fields) >= 1 && filepath.Base(fields[0]) == "treehouse" && (len(fields) == 1 || fields[1] == "get" || fields[1] == "enter")
 }
 
 func directChildren(all []entry, parent int) []entry {

@@ -146,8 +146,60 @@ func TestCloseErrorStillVerifiesHeldShell(t *testing.T) {
 		starts:    map[int]string{100: pinnedStart, 201: "shell-start"},
 		childPIDs: []int{201}, closeKills: true, closeErr: errors.New("close failed"),
 	}
-	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "1 held child process(es) survived cleanup") {
+	pinned := target("%1")
+	pinned.Ref.Terminal.Children = []adapterpkg.TerminalChild{{PID: 201, Start: "shell-start"}}
+	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), pinned); err == nil || !strings.Contains(err.Error(), "1 held child process(es) survived cleanup") {
 		t.Fatalf("Destroy error = %v, want surviving shell to retain lease", err)
+	}
+}
+
+func TestUnpinnedChildRefusesBeforeAnyStep(t *testing.T) {
+	// Destroy cannot record a child it discovers, so a retry could not verify it; refuse before touching anything.
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart, 201: "late-start"}, childPIDs: []int{201}, closeKills: true}
+	err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1"))
+	if err == nil || !strings.Contains(err.Error(), "unpinned child 201") || len(w.signals) != 0 || len(w.closes) != 0 {
+		t.Fatalf("unpinned child must retain the lease untouched: %v signals=%v closes=%v", err, w.signals, w.closes)
+	}
+}
+
+func TestDeadPinnedPIDWithAnotherStartIsNotOurs(t *testing.T) {
+	// A dead process at the pinned PID with a different start (a reused PID, now a zombie) must not let cleanup close the pane.
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{}, closeKills: true}
+	sys := w.system()
+	sys.Process = func(pid int) (string, ownerpkg.Liveness) { return "other-start", ownerpkg.Dead }
+	if err := (resource{w.driver(), sys}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "reused pid") || len(w.closes) != 0 {
+		t.Fatalf("reused dead pid must retain the lease: %v closes=%v", err, w.closes)
+	}
+}
+
+func TestListedTerminalWithoutProcess(t *testing.T) {
+	for _, stable := range []bool{false, true} {
+		w := world{panes: map[string]int{"%1": 0}, starts: map[int]string{}}
+		d := w.driver()
+		d.StableIDs = stable
+		err := (resource{d, w.system()}).Destroy(context.Background(), target("%1"))
+		switch {
+		case stable && (err != nil || !reflect.DeepEqual(w.closes, []string{"%1"})):
+			t.Fatalf("a never-reused ID listed without a process is ours and must be closed: %v %v", err, w.closes)
+		case !stable && (err == nil || !strings.Contains(err.Error(), "without a process") || len(w.closes) != 0):
+			t.Fatalf("a reusable ID listed without a process must retain the lease untouched: %v %v", err, w.closes)
+		}
+	}
+}
+
+func TestPinnedIdentityRecheckedBeforeHangup(t *testing.T) {
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart}, hupExits: true}
+	sys := w.system()
+	reads := 0
+	inner := sys.Process
+	sys.Process = func(pid int) (string, ownerpkg.Liveness) {
+		if reads++; pid == 100 && reads > 1 {
+			return "reused-start", ownerpkg.Alive // the PID was reused after observe sampled it
+		}
+		return inner(pid)
+	}
+	if err := (resource{w.driver(), sys}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "changed before hangup") || len(w.signals) != 0 {
+		t.Fatalf("a PID reused before the hangup must not be signalled: %v %v", err, w.signals)
 	}
 }
 

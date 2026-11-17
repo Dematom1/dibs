@@ -90,7 +90,7 @@ A heartbeat older than its staleness makes the owner dead, so its shell and
 protected leases become reclaimable under the reclaim rule. Unknown liveness alone
 never permits reclaim for shell leases or protected leases; other time-bound
 leases may still be reclaimed at expiry. `extend` refuses expired leases and owners that are dead or unknown,
-except that a protected lease with a live owner reattaches after expiry while
+except that a protected or terminal lease with a live owner reattaches after expiry while
 its resource is present (see below).
 
 ```sh

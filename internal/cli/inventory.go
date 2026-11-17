@@ -185,10 +185,14 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		}
 	}
 	var r adapterpkg.ResourceRef
+	var dockerErr error
 	if !terminal {
 		var err error
 		r, err = adapterpkg.ResolveDockerContext(ctx, *contextName, adapterpkg.RunCommand)
-		if err != nil {
+		// With terminals enabled, plain orphans reports Docker as unavailable instead of hiding the terminal inventory.
+		if err != nil && command == "orphans" && kind == "" && len(terminals) > 0 {
+			dockerErr = err
+		} else if err != nil {
 			return outputpkg.Error(out, mode, 1, err.Error(), "Select a reachable Docker context and retry dibs "+command)
 		}
 	}
@@ -204,7 +208,7 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		return app.adopt(ctx, out, mode, leasepkg.AdoptRequest{Owner: parsedOwner, TTL: ttl, Resource: r, File: file, Key: key, ProtectLiveOwner: protect, Policy: leasePolicy}, key != "")
 	}
 	rows := []map[string]any{}
-	if !terminal {
+	if !terminal && dockerErr == nil {
 		found, err := app.leases.Orphans(ctx, r)
 		if err != nil {
 			return app.leaseError(out, mode, command, err)
@@ -217,6 +221,9 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	}
 	// A missing tool or stopped server makes only that terminal type unavailable.
 	unavailable := map[string]string{}
+	if dockerErr != nil {
+		unavailable["docker"] = dockerErr.Error()
+	}
 	for _, name := range terminals {
 		td, _ := app.resources.Lookup(name)
 		resolved, err := td.Terminal.ResolveServer(ctx, *server)
@@ -242,7 +249,11 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		result["unavailable"] = unavailable
 	}
 	for _, name := range slices.Sorted(maps.Keys(unavailable)) {
-		result["help"] = append(result["help"].([]string), "Start the "+name+" server, or run dibs orphans --type "+name+" --server S to inventory another one")
+		hint := "Start the " + name + " server, or run dibs orphans --type " + name + " --server S to inventory another one"
+		if name == "docker" {
+			hint = "Docker resources were not inventoried; select a reachable context with --context NAME and retry dibs orphans"
+		}
+		result["help"] = append(result["help"].([]string), hint)
 	}
 	outputpkg.Emit(out, mode, result)
 	return 0
