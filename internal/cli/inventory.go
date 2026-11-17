@@ -10,7 +10,9 @@ import (
 	policypkg "github.com/Dematom1/dibs/internal/policy"
 	remotepkg "github.com/Dematom1/dibs/internal/remote"
 	"io"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +20,9 @@ import (
 )
 
 func adoptionCommand(row map[string]any) string {
+	if server, ok := row["server"].(string); ok {
+		return "dibs adopt " + row["type"].(string) + " " + remotepkg.ShellQuote(row["name"].(string)) + " --server " + remotepkg.ShellQuote(server) + " --owner '<owner>' --ttl '<duration>'"
+	}
 	command := "dibs adopt " + row["type"].(string) + " " + remotepkg.ShellQuote(row["name"].(string)) + " --context " + remotepkg.ShellQuote(row["docker_context"].(string))
 	if row["type"] == "compose" {
 		// Multiple original files need an explicitly resolved single config, not a guessed split on commas.
@@ -80,7 +85,8 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	full := fs.Bool("full", false, "complete AXI lease record")
 	outputpkg.Flags(fs, &mode)
 	contextName := fs.String("context", "", "Docker context (default selected context)")
-	var owner, file, key, pending, claim string
+	server := fs.String("server", "", "terminal server: tmux socket, herdr session, or rex endpoint")
+	var owner, file, key, pending, claim, kind string
 	var protect bool
 	var ttl, idle, maxLifetime time.Duration
 	var excluded listFlag
@@ -97,6 +103,8 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		fs.DurationVar(&maxLifetime, "max-lifetime", 0, "tighter policy maximum lifetime")
 		fs.StringVar(&claim, "lease-id", "", "treehouse lease_id of a durably leased slot")
 		fs.Var(&excluded, "landed-exclude-remote", "remote whose refs do not count as landed (repeatable)")
+	} else {
+		fs.StringVar(&kind, "type", "", "limit to one resource type")
 	}
 	if err := parseFlags(fs, args); err != nil {
 		return outputpkg.Error(out, mode, 2, err.Error(), help(command))
@@ -107,20 +115,28 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	}
 	out = &outputpkg.Writer{Writer: out, Mode: mode.Effective(out), Full: *full, FullCommand: "dibs --axi ps --full"}
 	var parsedOwner ownerpkg.Reference
+	selected := fs.Arg(0)
+	if command == "orphans" {
+		selected = kind
+	}
+	d, known := app.resources.Lookup(selected)
+	terminal := known && d.Terminal != nil
+	if command == "adopt" && *server != "" && !terminal {
+		return outputpkg.Error(out, mode, 2, "--server applies only to the terminal types tmux, herdr, rex, and treehouse-subshell", help(command))
+	}
 	var leasePolicy *policypkg.Policy
-	if d, known := app.resources.Lookup(fs.Arg(0)); command == "adopt" && known && d.Name == treehousepkg.Name {
+	if command == "adopt" && known && d.Name == treehousepkg.Name {
 		return app.adoptVerified(ctx, d, fs, out, mode, verifiedAdoption{owner: owner, claim: claim, key: key, pending: pending, context: *contextName, file: file, protect: protect, stale: stale, ttl: ttl, idle: idle, maxLifetime: maxLifetime, excluded: excluded})
 	}
 	if command == "adopt" && (claim != "" || len(excluded) > 0) {
 		return outputpkg.Error(out, mode, 2, "--lease-id and --landed-exclude-remote apply only to "+treehousepkg.Name, help(command))
 	}
 	if command == "adopt" {
-		d, known := app.resources.Lookup(fs.Arg(0))
 		if (pending != "" || key != "") && !consumerContractEnabled() {
 			return outputpkg.Error(out, mode, 2, consumerContractOff, help(command))
 		}
 		if pending != "" {
-			if fs.NArg() != 2 || !known || d.Discover == nil || !adapterpkg.ValidResourceName(fs.Arg(1)) || !leasepkg.ValidID(pending) || owner != "" || ttl != 0 || key != "" || protect || *contextName != "" || (!d.RequiresFile && file != "") {
+			if fs.NArg() != 2 || !known || d.Discover == nil || terminal || !adapterpkg.ValidResourceName(fs.Arg(1)) || !leasepkg.ValidID(pending) || owner != "" || ttl != 0 || key != "" || protect || *contextName != "" || (!d.RequiresFile && file != "") {
 				return outputpkg.Error(out, mode, 2, "--pending takes type, handle and a lease id; the pending lease already fixes owner, TTL, key and context", help(command))
 			}
 			return app.adopt(ctx, out, mode, leasepkg.AdoptRequest{Resource: adapterpkg.ResourceRef{Adapter: fs.Arg(0), Name: fs.Arg(1)}, File: file, Pending: pending}, true)
@@ -129,7 +145,7 @@ func (app application) runInventory(ctx context.Context, command string, args []
 			return outputpkg.Error(out, mode, 2, shellAdapterOff, help(command))
 		}
 		// With lease policies on, the policy row supplies the TTL.
-		if fs.NArg() != 2 || !known || d.Discover == nil || !adapterpkg.ValidResourceName(fs.Arg(1)) || owner == "" || ttl < 0 || (ttl == 0 && !leasePoliciesEnabled()) || d.RequiresFile != (file != "") || (d.HostScoped && *contextName != "") {
+		if fs.NArg() != 2 || !known || d.Discover == nil || !d.ValidName(fs.Arg(1)) || owner == "" || ttl < 0 || (ttl == 0 && !leasePoliciesEnabled()) || d.RequiresFile != (file != "") || ((d.HostScoped || terminal) && *contextName != "") {
 			return outputpkg.Error(out, mode, 2, "require type, name, explicit --owner and positive --ttl; --file is required only for compose, --context only for Docker resources", help(command))
 		}
 		if protect && !liveOwnerProtectionEnabled() {
@@ -138,6 +154,24 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		if key != "" && !leasepkg.ValidKey(key) {
 			return outputpkg.Error(out, mode, 2, keyRule, help(command))
 		}
+	} else if fs.NArg() != 0 || (kind != "" && (!known || d.Discover == nil)) || (*server != "" && !terminal) || (terminal && *contextName != "") {
+		return outputpkg.Error(out, mode, 2, "orphans takes no positional arguments; --type names a resource type; --server requires --type with a terminal type", help(command))
+	}
+	var terminals []string
+	if terminal || (command == "orphans" && kind == "") {
+		enabled, err := enabledTerminals(app.resources)
+		if err != nil {
+			return outputpkg.Error(out, mode, 2, err.Error(), help(command))
+		}
+		terminals = enabled
+		if terminal {
+			if !slices.Contains(enabled, selected) {
+				return outputpkg.Error(out, mode, 2, "terminal adapter "+selected+" is off; enable it with "+terminalOptIn, help(command))
+			}
+			terminals = []string{selected}
+		}
+	}
+	if command == "adopt" {
 		var err error
 		parsedOwner, err = app.owners.Bind(ctx, owner, stale, time.Now().UTC())
 		if err != nil {
@@ -149,25 +183,79 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		if d.HostScoped {
 			return app.adopt(ctx, out, mode, leasepkg.AdoptRequest{Owner: parsedOwner, TTL: ttl, Resource: adapterpkg.ResourceRef{Adapter: fs.Arg(0), Name: fs.Arg(1)}, Key: key, ProtectLiveOwner: protect, Policy: leasePolicy}, key != "")
 		}
-	} else if fs.NArg() != 0 {
-		return outputpkg.Error(out, mode, 2, "orphans takes no positional arguments", help(command))
 	}
-	r, err := adapterpkg.ResolveDockerContext(ctx, *contextName, adapterpkg.RunCommand)
-	if err != nil {
-		return outputpkg.Error(out, mode, 1, err.Error(), "Select a reachable Docker context and retry dibs "+command)
+	var r adapterpkg.ResourceRef
+	var dockerErr error
+	if !terminal {
+		var err error
+		r, err = adapterpkg.ResolveDockerContext(ctx, *contextName, adapterpkg.RunCommand)
+		// With terminals enabled, plain orphans reports Docker as unavailable instead of hiding the terminal inventory.
+		if err != nil && command == "orphans" && kind == "" && len(terminals) > 0 {
+			dockerErr = err
+		} else if err != nil {
+			return outputpkg.Error(out, mode, 1, err.Error(), "Select a reachable Docker context and retry dibs "+command)
+		}
 	}
 	if command == "adopt" {
+		if terminal {
+			resolved, err := d.Terminal.ResolveServer(ctx, *server)
+			if err != nil {
+				return outputpkg.Error(out, mode, 1, err.Error(), "Check that the "+selected+" server is reachable and retry dibs adopt")
+			}
+			r.Terminal = &adapterpkg.TerminalPin{Server: resolved}
+		}
 		r.Adapter, r.Name = fs.Arg(0), fs.Arg(1)
 		return app.adopt(ctx, out, mode, leasepkg.AdoptRequest{Owner: parsedOwner, TTL: ttl, Resource: r, File: file, Key: key, ProtectLiveOwner: protect, Policy: leasePolicy}, key != "")
 	}
-	rows, err := app.leases.Orphans(ctx, r)
-	if err != nil {
-		return app.leaseError(out, mode, command, err)
+	rows := []map[string]any{}
+	if !terminal && dockerErr == nil {
+		found, err := app.leases.Orphans(ctx, r)
+		if err != nil {
+			return app.leaseError(out, mode, command, err)
+		}
+		for _, row := range found {
+			if kind == "" || row["type"] == kind {
+				rows = append(rows, row)
+			}
+		}
+	}
+	// A missing tool or stopped server makes only that terminal type unavailable.
+	unavailable := map[string]string{}
+	if dockerErr != nil {
+		unavailable["docker"] = dockerErr.Error()
+	}
+	for _, name := range terminals {
+		td, _ := app.resources.Lookup(name)
+		resolved, err := td.Terminal.ResolveServer(ctx, *server)
+		var found []map[string]any
+		if err == nil {
+			found, err = td.Discover(ctx, adapterpkg.ResourceRef{Adapter: name, Terminal: &adapterpkg.TerminalPin{Server: resolved}})
+		}
+		if err != nil {
+			unavailable[name] = err.Error()
+			continue
+		}
+		found, err = app.leases.Unleased(ctx, adapterpkg.ResourceRef{Terminal: &adapterpkg.TerminalPin{Server: resolved}}, found)
+		if err != nil {
+			return app.leaseError(out, mode, command, err)
+		}
+		rows = append(rows, found...)
 	}
 	for _, row := range rows {
 		row["adopt"] = adoptionCommand(row)
 	}
-	outputpkg.Emit(out, mode, map[string]any{"count": len(rows), "orphans": rows, "help": []string{"Unleased does not mean unused. Choose an owner and TTL explicitly; age alone never authorizes cleanup."}})
+	result := map[string]any{"count": len(rows), "orphans": rows, "help": []string{"Unleased does not mean unused. Choose an owner and TTL explicitly; age alone never authorizes cleanup."}}
+	if len(terminals) > 0 {
+		result["unavailable"] = unavailable
+	}
+	for _, name := range slices.Sorted(maps.Keys(unavailable)) {
+		hint := "Start the " + name + " server, or run dibs orphans --type " + name + " --server S to inventory another one"
+		if name == "docker" {
+			hint = "Docker resources were not inventoried; select a reachable context with --context NAME and retry dibs orphans"
+		}
+		result["help"] = append(result["help"].([]string), hint)
+	}
+	outputpkg.Emit(out, mode, result)
 	return 0
 }
 
@@ -189,7 +277,16 @@ func (app application) adopt(ctx context.Context, out io.Writer, mode outputpkg.
 	if path := l.ResourceRef.Path; path != "" {
 		next = append([]string{"Work in " + remotepkg.ShellQuote(path) + "; never run treehouse return on it, release the lease instead"}, next...)
 	}
-	result := map[string]any{"lease": outputpkg.LeaseView(l, live, l.Created, kube), "record": outputpkg.LeaseRecord(l, kube), "help": next}
+	observed := l.Created
+	if done {
+		observed = time.Now().UTC()
+	}
+	result := map[string]any{"lease": outputpkg.LeaseView(l, live, observed, kube), "record": outputpkg.LeaseRecord(l, kube), "help": next}
+	if done && !contract {
+		// An unkeyed terminal retry found this owner already holding the same pinned terminal.
+		result["existing"] = true
+		result["help"] = []string{"This owner already holds the lease; run dibs extend " + l.ID + " --ttl D to renew it"}
+	}
 	if contract {
 		status := map[bool]string{false: "adopted", true: "bound"}[r.Pending != ""]
 		if done {

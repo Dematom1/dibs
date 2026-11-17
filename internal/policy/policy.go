@@ -64,6 +64,10 @@ func Defaults() map[string]Policy {
 		// A worktree slot belongs to its task while the owner lives; cleanup never discards unlanded work.
 		"treehouse-worktree": {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
 	}
+	// Closing a terminal ends its shell, so a terminal lives exactly as long as its owner.
+	for _, terminal := range []string{"tmux", "herdr", "rex", "treehouse-subshell"} {
+		rows[terminal] = Policy{Binding: Owner, TTL: 8 * time.Hour, Action: Destroy}
+	}
 	for key, p := range rows {
 		p.Row = key
 		rows[key] = p
@@ -76,6 +80,15 @@ func Defaults() map[string]Policy {
 type Kinds struct {
 	Resources, Owners []string
 	Idle              func(resource string) bool
+}
+
+func terminalResource(resource string) bool {
+	switch resource {
+	case "tmux", "herdr", "rex", "treehouse-subshell":
+		return true
+	default:
+		return false
+	}
 }
 
 func contains(list []string, value string) bool {
@@ -157,6 +170,9 @@ func (p Policy) check(key string) error {
 		return invalid("renew must not exceed ttl")
 	case p.MaxLifetime > 0 && p.MaxLifetime < p.TTL:
 		return invalid("max_lifetime must be at least ttl")
+	case p.ReclaimLiveOwner && terminalResource(strings.SplitN(key, "/", 2)[0]):
+		// Closing a terminal ends its shell, so a live owner's terminal is never reclaimed, configured or recorded.
+		return invalid("reclaim_live_owner is not allowed for terminals")
 	case p.ReclaimLiveOwner && p.Binding != Hybrid:
 		return invalid("reclaim_live_owner requires a hybrid binding")
 	case p.Binding == Owner && (p.Idle > 0 || p.MaxLifetime > 0):

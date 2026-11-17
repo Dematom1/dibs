@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var kinds = Kinds{Resources: []string{"none", "kind", "k3d", "compose", "shell", "treehouse-worktree"}, Owners: []string{"pid", "pr", "exec"}, Idle: func(r string) bool { return r == "shell" }}
+var kinds = Kinds{Resources: []string{"none", "kind", "k3d", "compose", "shell", "treehouse-worktree", "tmux", "herdr", "rex", "treehouse-subshell"}, Owners: []string{"pid", "pr", "exec"}, Idle: func(r string) bool { return r == "shell" }}
 
 func TestDefaultsCoverEveryResource(t *testing.T) {
 	table, err := Table(nil, kinds)
@@ -43,6 +43,19 @@ func TestConfiguredRowsReplaceAndNarrow(t *testing.T) {
 	}
 	if p, _ := Resolve(table, "kind", "pid"); p.Row != "kind" || p.Binding != Owner || p.MaxLifetime != 0 {
 		t.Fatalf("replaced row = %+v", p)
+	}
+	if _, err := Table(map[string]Row{"tmux": {Binding: Hybrid, MaxLifetime: "24h", ReclaimLiveOwner: true}}, kinds); err == nil || !strings.Contains(err.Error(), "reclaim_live_owner is not allowed for terminals") {
+		t.Fatalf("terminal reclaim_live_owner accepted: %v", err)
+	}
+	// A recorded policy must meet the same rule, so state carrying the flag for a terminal is refused when loaded.
+	for _, row := range []string{"tmux", "rex/pid", "treehouse-subshell"} {
+		recorded := Policy{Row: row, Binding: Hybrid, TTL: time.Hour, MaxLifetime: 24 * time.Hour, Action: Destroy, ReclaimLiveOwner: true}
+		if err := recorded.Validate(); err == nil || !strings.Contains(err.Error(), "reclaim_live_owner is not allowed for terminals") {
+			t.Fatalf("recorded %s policy with reclaim_live_owner validated: %v", row, err)
+		}
+	}
+	if err := (Policy{Row: "shell", Binding: Hybrid, TTL: time.Hour, Idle: time.Minute, Action: Destroy, ReclaimLiveOwner: true}).Validate(); err != nil {
+		t.Fatalf("shell keeps its #48 reclaim_live_owner opt-in: %v", err)
 	}
 	for _, binding := range []string{Time, Owner} {
 		if _, err := Table(map[string]Row{"shell": {Binding: binding, ReclaimLiveOwner: true}}, kinds); err == nil || !strings.Contains(err.Error(), "reclaim_live_owner requires a hybrid binding") {

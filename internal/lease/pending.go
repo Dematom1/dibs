@@ -68,13 +68,16 @@ func sameOwner(a, b ownerpkg.Reference) bool {
 // settleVersion writes the lowest version that holds every record, so an older
 // binary refuses state it would misread: 3 for live-owner protection, 4 for keys
 // and pending leases, which a version 3 reader would silently drop on save, and 5
-// for lease policies and shells, which a version 4 reader would reclaim at expiry.
+// for lease policies and shells, which a version 4 reader would reclaim at expiry,
+// and 6 for terminals, which a version 5 reader would not recognize.
 func (s *store) settleVersion() {
 	version := 2
 	for _, l := range s.Leases {
 		switch {
+		case l.ResourceRef.Terminal != nil:
+			version = 6
 		case l.Policy != nil || l.DeadSince != nil || l.ResourceRef.Process != nil:
-			version = 5
+			version = max(version, 5)
 		case l.Key != "" || l.ResourceRef.Pending:
 			version = max(version, 4)
 		case l.ProtectLiveOwner:
@@ -122,6 +125,10 @@ func rowLabels(row map[string]any) map[string]string {
 }
 
 func sameEngine(ctx context.Context, a, b adapterpkg.ResourceRef, run adapterpkg.CommandRunner) (bool, error) {
+	if a.Terminal != nil || b.Terminal != nil {
+		// A terminal ID is unique only within its server.
+		return a.Terminal != nil && b.Terminal != nil && a.Terminal.Server == b.Terminal.Server, nil
+	}
 	if a.DockerHost != "" && b.DockerHost != "" {
 		return a.DockerHost == b.DockerHost, nil
 	}
@@ -485,7 +492,7 @@ func Governing(l Lease) (policypkg.Policy, string) {
 		return *l.Policy, "lease"
 	}
 	binding := policypkg.Time
-	if l.ResourceRef.Adapter == "shell" && l.ResourceRef.Process != nil {
+	if holdsShell(l.ResourceRef) {
 		binding = policypkg.Owner
 	}
 	p := policypkg.Policy{Row: l.ResourceRef.Adapter, Binding: binding, TTL: l.TTL, Action: policypkg.Destroy}

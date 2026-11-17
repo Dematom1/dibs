@@ -53,6 +53,82 @@ func hasRun(job any, command string) bool {
 	return false
 }
 
+// uncommented drops each line's shell comment, which starts at a word that begins with #, before commands are split.
+func uncommented(run string) string {
+	lines := strings.Split(run, "\n")
+	for i, line := range lines {
+		for j := 0; j < len(line); j++ {
+			if line[j] == '#' && (j == 0 || line[j-1] == ' ' || line[j-1] == '\t') {
+				lines[i] = line[:j]
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func installsPackage(run, packageName string) bool {
+	for _, command := range strings.FieldsFunc(uncommented(run), func(r rune) bool { return r == '\n' || r == '&' || r == '|' || r == ';' }) {
+		fields := strings.Fields(strings.TrimSpace(command))
+		for i, field := range fields {
+			if strings.HasPrefix(field, "#") {
+				fields = fields[:i]
+				break
+			}
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] == "sudo" {
+			fields = fields[1:]
+		}
+		if len(fields) < 3 || (fields[0] != "apt" && fields[0] != "apt-get") {
+			continue
+		}
+		install := -1
+		for i, field := range fields[1:] {
+			if field == "install" {
+				install = i + 1
+				break
+			}
+		}
+		if install < 0 {
+			continue
+		}
+		for _, field := range fields[install+1:] {
+			if field == packageName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestInstallsPackage(t *testing.T) {
+	for _, tc := range []struct {
+		name, run string
+		want      bool
+	}{
+		{"apt-get package", "sudo apt-get install -y --no-install-recommends tmux", true},
+		{"apt package", "apt install tmux", true},
+		{"unrelated commands", "echo apt-get install; echo tmux", false},
+		{"comment", "# sudo apt-get install tmux", false},
+		{"inline comment", "sudo apt-get install -y # tmux", false},
+		{"commented-out CI command", "# sudo apt-get update && sudo apt-get install -y --no-install-recommends tmux && tmux -V", false},
+		{"trailing comment after a chain", "sudo apt-get update # && sudo apt-get install -y tmux", false},
+		{"real install after a commented line", "# install tmux\nsudo apt-get install -y tmux", true},
+		{"package in another command", "sudo apt-get install -y git && echo tmux", false},
+		{"not exact package", "sudo apt-get install tmux-tools", false},
+		{"update is not install", "sudo apt-get update tmux", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := installsPackage(tc.run, "tmux"); got != tc.want {
+				t.Fatalf("installsPackage(%q) = %v, want %v", tc.run, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowActionPinsAndTrustBoundaries(t *testing.T) {
 	paths, err := filepath.Glob(".github/workflows/*.y*ml")
 	if err != nil || len(paths) == 0 {
@@ -118,7 +194,7 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 		require(t, hasRun(pair.job, pair.command), "missing CI command: "+pair.command)
 	}
 	steps := list(object(integration)["steps"])
-	treehouseInstall, integrationRun := -1, -1
+	tmuxInstall, treehouseInstall, integrationRun := -1, -1, -1
 	for i, raw := range steps {
 		step := object(raw)
 		run, _ := step["run"].(string)
@@ -141,10 +217,15 @@ func TestCIWorkflowRequiredCoverage(t *testing.T) {
 		if install >= 0 && path > install {
 			treehouseInstall = i
 		}
+		if tmuxInstall < 0 && installsPackage(run, "tmux") {
+			tmuxInstall = i
+		}
 		if run == "just integration" {
 			integrationRun = i
 		}
 	}
+	require(t, tmuxInstall >= 0 && integrationRun > tmuxInstall,
+		"integration must install tmux before running integration")
 	require(t, treehouseInstall >= 0 && integrationRun > treehouseInstall,
 		"integration must install pinned treehouse, add GOPATH/bin to PATH, then run integration")
 	required := object(jobs["main-required-ci"])

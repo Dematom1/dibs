@@ -86,12 +86,31 @@ func humanObject(w io.Writer, value map[string]any, now time.Time) {
 			}
 		case "orphans":
 			rows := value[key].([]map[string]any)
-			if len(rows) == 0 {
+			if _, terminals := value["unavailable"]; len(rows) == 0 && terminals {
+				fmt.Fprintln(w, "No unleased resources.")
+			} else if len(rows) == 0 {
 				fmt.Fprintln(w, "No unleased kind, k3d or Compose resources in this Docker context.")
 			}
 			for _, row := range rows {
-				fmt.Fprintf(w, "%s %s (%s)\n", humanText(row["type"].(string)), humanText(row["name"].(string)), humanText(row["docker_context"].(string)))
+				where, ok := row["docker_context"].(string)
+				if !ok {
+					where, _ = row["server"].(string)
+				}
+				fmt.Fprintf(w, "%s %s (%s)\n", humanText(row["type"].(string)), humanText(row["name"].(string)), humanText(where))
 				humanObject(w, row, now)
+			}
+		case "unavailable", "targets", "terminal":
+			entries := map[string]any{}
+			switch v := value[key].(type) {
+			case map[string]string:
+				for name, text := range v {
+					entries[name] = text
+				}
+			case map[string]any:
+				entries = v
+			}
+			for _, name := range keys(entries) {
+				fmt.Fprintf(w, "%s %s: %s\n", key, humanText(name), humanValue(name, entries[name], now))
 			}
 		case "leases":
 			rows := value[key].([]map[string]any)

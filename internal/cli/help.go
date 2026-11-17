@@ -53,6 +53,7 @@ var commandHelp = map[string]string{
   [--context NAME] [--file PATH (required for compose)] [--stale 15m]
   [--protect-live-owner] [--key K] [--idle D] [--max-lifetime D] [--full] [--axi | --json]
 dibs adopt shell <pid> --owner KIND:ID --ttl D [--key K] [--idle D] [--max-lifetime D]
+dibs adopt <tmux|herdr|rex|treehouse-subshell> <id> --owner KIND:ID --ttl D [--server S] [--key K]
 dibs adopt <kind|k3d|compose> <handle> --pending ID [--file PATH] [--axi | --json]
 Explicitly lease an existing resource. Existence must be verified and no lease
 may already own it. Captures cleanup configuration; does not recreate resources.
@@ -62,7 +63,11 @@ shell (DIBS_SHELL_ADAPTER=1 or "shell_adapter": true) leases a running shell by
 PID and start time, with its descendants such as gitstatusd. Cleanup refuses a
 shell with a foreground job, sends SIGHUP, then SIGTERM and SIGKILL after 5s
 each, reports each step on stderr, and verifies every member gone.
---key K: retries match owner, protection, adapter, mode, resource, Docker scope, and Compose file; TTL, description, and labels are ignored.
+Terminal types (terminal_adapters in config.json or DIBS_TERMINAL_ADAPTERS) pin
+the terminal's process so a reused ID is never reclaimed. Like shells they are
+owner-bound: only proven owner death reclaims them. Cleanup hangs up the shell,
+then closes the pane or block. A same-owner retry returns existing: true.
+--key K: retries match owner, protection, adapter, mode, resource, Docker scope or terminal server, and Compose file; TTL, description, and labels are ignored.
 --protect-live-owner: only proven owner death reclaims; expiry alone never does.
 Requires DIBS_LIVE_OWNER_PROTECTION=1 or "live_owner_protection": true.
 --pending ID registers a resource the caller created for a pending lease (see
@@ -72,7 +77,8 @@ Examples:
   dibs adopt kind my-lab --owner pid:1234 --ttl 1h
   dibs adopt compose my-stack --file compose.yaml --owner pid:1234 --ttl 2h
   dibs adopt kind lab-7 --pending <id>
-  dibs adopt shell "$$" --owner 'exec:test -e /tmp/task-7.open' --ttl 8h`,
+  dibs adopt shell "$$" --owner 'exec:test -e /tmp/task-7.open' --ttl 8h
+  dibs adopt tmux %3 --owner pid:1234 --ttl 4h`,
 	"reconcile": `dibs reconcile [<id>] [--confirm] [--axi | --json]
 Resolve pending leases after a crash between creating a resource and dibs adopt
 --pending. A resource matches only by evidence recorded before it existed: the
@@ -110,13 +116,15 @@ reclaim_at, remaining, renew_by, and activity (busy, idle, members).
 Examples:
   dibs explain <id>
   dibs explain <id> --json`,
-	"orphans": `dibs orphans [--context NAME] [--full] [--axi | --json]
+	"orphans": `dibs orphans [--context NAME] [--type T] [--server S] [--full] [--axi | --json]
 Read-only inventory of unleased kind, k3d and Compose resources in the selected
-Docker context. Includes labels, creation evidence and adoption command templates.
+Docker context, plus opted-in terminals. --type limits it to one type; a terminal
+type skips Docker. Includes evidence and adoption command templates.
 Unleased does not mean unused: age never authorizes deletion. No state is written.
 Examples:
   dibs orphans
-  dibs orphans --context orbstack --json`,
+  dibs orphans --context orbstack --json
+  dibs orphans --type rex`,
 	"setup": `dibs setup hooks [--remove] [--axi | --json]
 Install or remove managed Claude Code, Codex, Pi and OpenCode integrations.
 Sets DIBS_AXI=1 in agent shell environments. Repeated setup is a no-op.

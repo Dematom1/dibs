@@ -486,6 +486,9 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 			// A fired condition that must not act yet: a busy resource, a grace period, or a report-only policy.
 			result["held"] = r.Held
 		}
+		if len(r.Targets) > 0 {
+			result["targets"] = r.Targets
+		}
 		if !confirm {
 			result["help"] = []string{"Run dibs sweep --confirm to reclaim eligible leases"}
 		}
