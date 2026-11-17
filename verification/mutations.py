@@ -18,7 +18,7 @@ MUTATIONS = [
     ("shell-owner-bound", "internal/lease/lease.go", "if holdsShell(l.ResourceRef) || l.ProtectLiveOwner || l.Policy.OwnerBound() {",
      "if l.ProtectLiveOwner || l.Policy.OwnerBound() {", "^TestDecideAppliesPolicy$"),
     ("terminal-owner-bound", "internal/lease/verdict.go", "return (ref.Adapter == \"shell\" && ref.Process != nil) || ref.Terminal != nil",
-     "return ref.Adapter == \"shell\" && ref.Process != nil", "^TestTerminalAdoptionIsScopedToItsServer$"),
+     "return ref.Adapter == \"shell\" && ref.Process != nil", "^Test(TerminalAdoptionIsScopedToItsServer|TerminalPolicyCannotReclaimLiveOwner)$"),
     ("busy", "internal/lease/verdict.go", "case v.Activity != nil && v.Activity.Busy != \"\":\n\t\tv.Hold = HoldResourceBusy",
      "case false:\n\t\tv.Hold = HoldResourceBusy", "^TestDecideAppliesPolicy$"),
     ("lock", "internal/lease/store.go", "err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)",

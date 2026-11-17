@@ -103,6 +103,9 @@ func TestTerminalAdoptionIsScopedToItsServer(t *testing.T) {
 	for _, check := range []func(ownerpkg.Reference, time.Time) ownerpkg.Liveness{alive, unknown} {
 		// Closing a terminal ends its shell, so expiry alone never reclaims it.
 		for _, at := range []time.Time{time.Now(), l.Expires.Add(time.Hour)} {
+			if reclaim, _ := reclaimable(l, l.Machine, at, check); reclaim {
+				t.Fatal("live or unknown owner's terminal became reclaimable")
+			}
 			if r, _ := sweep(ctx, s, l.Machine, at, false, check, m.options.Adapters); len(r.Eligible) != 0 || r.Targets != nil {
 				t.Fatalf("a live or unknown owner's terminal was offered for reclaim: %+v", r)
 			}
