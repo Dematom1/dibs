@@ -82,6 +82,15 @@ type Kinds struct {
 	Idle              func(resource string) bool
 }
 
+func terminalResource(resource string) bool {
+	switch resource {
+	case "tmux", "herdr", "rex", "treehouse-subshell":
+		return true
+	default:
+		return false
+	}
+}
+
 func contains(list []string, value string) bool {
 	for _, v := range list {
 		if v == value {
@@ -110,6 +119,9 @@ func Table(rows map[string]Row, kinds Kinds) (map[string]Policy, error) {
 		p, err := parse(key, rows[key])
 		if err != nil {
 			return nil, err
+		}
+		if p.ReclaimLiveOwner && terminalResource(resource) {
+			return nil, fmt.Errorf("policy %q: reclaim_live_owner is not allowed for terminals", key)
 		}
 		if p.Idle > 0 && (kinds.Idle == nil || !kinds.Idle(resource)) {
 			return nil, fmt.Errorf("policy %q: %s resources have no idle signal; remove idle", key, resource)

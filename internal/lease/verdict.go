@@ -54,6 +54,7 @@ func decide(ctx context.Context, l Lease, host string, now time.Time, check func
 	}
 	p := l.Policy
 	shell := holdsShell(l.ResourceRef)
+	terminal := l.ResourceRef.Terminal != nil
 	var grace time.Duration
 	if p != nil {
 		grace = p.Grace
@@ -119,7 +120,7 @@ func decide(ctx context.Context, l Lease, host string, now time.Time, check func
 		v.Hold, v.Due = HoldGrace, earliest(waiting, grace)
 	case v.Activity != nil && v.Activity.Busy != "":
 		v.Hold = HoldResourceBusy
-	case live != ownerpkg.Dead && (shell || (p != nil && p.Binding == policypkg.Hybrid)) && (live != ownerpkg.Alive || p == nil || !p.ReclaimLiveOwner):
+	case live != ownerpkg.Dead && (terminal || (shell || (p != nil && p.Binding == policypkg.Hybrid)) && (live != ownerpkg.Alive || p == nil || !p.ReclaimLiveOwner)):
 		v.Hold = HoldLiveOwner
 	case v.ActivityErr != nil:
 		v.Hold = HoldResourceUnknown

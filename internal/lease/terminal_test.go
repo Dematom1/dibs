@@ -13,6 +13,7 @@ import (
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
 	terminalpkg "github.com/Dematom1/dibs/internal/adapter/terminal"
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policy "github.com/Dematom1/dibs/internal/policy"
 )
 
 // fakeTerminals serves one live pane per server, each carrying this test process as its shell.
@@ -110,6 +111,18 @@ func TestTerminalAdoptionIsScopedToItsServer(t *testing.T) {
 	r, _ := sweep(ctx, s, l.Machine, time.Now(), false, dead, m.options.Adapters)
 	if len(r.Eligible) != 1 || !strings.HasPrefix(r.Targets[l.ID], "fake pane %1 on /a (pid "+strconv.Itoa(os.Getpid())) || len(s.Leases) != 1 {
 		t.Fatalf("dry run must name exactly what it would close and change nothing: %+v", r)
+	}
+}
+
+func TestTerminalPolicyCannotReclaimLiveOwner(t *testing.T) {
+	now := time.Now()
+	lease := Lease{Machine: "m", Created: now.Add(-2 * time.Hour), Expires: now.Add(-time.Hour),
+		Owner:       ownerpkg.Reference{Kind: "pid", ID: strconv.Itoa(os.Getpid())},
+		Policy:      &policy.Policy{Binding: policy.Hybrid, TTL: time.Hour, MaxLifetime: time.Hour, ReclaimLiveOwner: true},
+		ResourceRef: adapterpkg.ResourceRef{Adapter: "fake", Terminal: &adapterpkg.TerminalPin{Server: "/a", PID: os.Getpid(), Start: "start"}}}
+	v := decide(context.Background(), lease, "m", now, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return ownerpkg.Alive }, adapterpkg.Registry{})
+	if v.Reclaim || v.Hold != HoldLiveOwner {
+		t.Fatalf("terminal policy reclaimed a live owner's shell: %+v", v)
 	}
 }
 
