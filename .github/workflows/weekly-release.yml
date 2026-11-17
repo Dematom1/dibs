@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   release:
-    uses: Dematom1/oss-workflows/.github/workflows/merge-release.yml@ee220d669cbb1376363825c273291dea4a539847
+    uses: Dematom1/oss-workflows/.github/workflows/merge-release.yml@f8cda90ccbb5df60cffcd69827296bc94f76a5f8
     with:
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
     secrets:
