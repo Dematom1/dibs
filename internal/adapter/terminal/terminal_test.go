@@ -272,3 +272,46 @@ func TestMergeEnvRemovesEmptyOverrides(t *testing.T) {
 		t.Fatalf("env: %v", got)
 	}
 }
+
+func TestUnpinnedChildRefusesBeforeCloseOnEveryPath(t *testing.T) {
+	// A leftover terminal (its pinned shell is gone) still carrying an unpinned live child.
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{301: "late"}, childPIDs: []int{301}, closeKills: true}
+	if err := (resource{w.driver(), w.system()}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "unpinned child 301") || len(w.closes) != 0 {
+		t.Fatalf("leftover with an unpinned child must retain the lease untouched: %v closes=%v", err, w.closes)
+	}
+	// A child that appears in the post-hangup listing.
+	w = world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart}, closeKills: true}
+	sys := w.system()
+	signal := sys.Signal
+	sys.Signal = func(pid int, sig syscall.Signal) error {
+		w.childPIDs, w.starts[302] = []int{302}, "spawned-after-hangup"
+		return signal(pid, sig)
+	}
+	if err := (resource{w.driver(), sys}).Destroy(context.Background(), target("%1")); err == nil || !strings.Contains(err.Error(), "unpinned child 302") || len(w.closes) != 0 {
+		t.Fatalf("a child seen only after the hangup must stop the close: %v closes=%v", err, w.closes)
+	}
+}
+
+func TestSettleRidesOutATransientReadDuringTeardown(t *testing.T) {
+	w := world{panes: map[string]int{"%1": 100}, starts: map[int]string{100: pinnedStart}}
+	d := w.driver()
+	hungUp, glitches := false, 0
+	list := d.List
+	d.List = func(ctx context.Context, sys System, server string) ([]Pane, error) {
+		if hungUp && glitches == 0 {
+			// The holder is exiting: alive, but no longer listed as a terminal.
+			glitches++
+			return []Pane{}, nil
+		}
+		if hungUp {
+			delete(w.panes, "%1")
+			delete(w.starts, 100)
+		}
+		return list(ctx, sys, server)
+	}
+	sys := w.system()
+	sys.Signal = func(int, syscall.Signal) error { hungUp = true; return nil }
+	if err := (resource{d, sys}).Destroy(context.Background(), target("%1")); err != nil || glitches != 1 || len(w.closes) != 0 {
+		t.Fatalf("a transient read during teardown must not fail cleanup: %v glitches=%d closes=%v", err, glitches, w.closes)
+	}
+}

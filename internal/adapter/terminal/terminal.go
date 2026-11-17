@@ -321,6 +321,10 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 			return r.settleChildren(ctx, children)
 		}
 	}
+	// Every path to Close, including a leftover terminal and a fresh post-hangup listing, refuses a child it could not verify later.
+	if err := r.listedChildrenPinned(p, children); err != nil {
+		return err
+	}
 	if err := r.driver.Close(ctx, r.sys, t.Ref.Terminal.Server, p); err != nil {
 		if s, _, observeErr := r.observe(ctx, t.Ref); observeErr == nil && s == absent {
 			return r.settleChildren(ctx, children)
@@ -337,22 +341,8 @@ func (r resource) Destroy(ctx context.Context, t adapterpkg.Target) error {
 }
 
 func (r resource) verifyCurrentChildren(p Pane, children []adapterpkg.TerminalChild) error {
-	pinned := make(map[int]string, len(children))
-	for _, child := range children {
-		pinned[child.PID] = child.Start
-	}
-	for _, pid := range p.ChildPIDs {
-		start, ok := pinned[pid]
-		if !ok {
-			return fmt.Errorf("%s %s has an unpinned child %d; touching nothing, lease retained", r.driver.Noun, p.ID, pid)
-		}
-		current, live := r.sys.Process(pid)
-		if live == ownerpkg.Unknown {
-			return fmt.Errorf("cannot inspect held child %d; lease retained", pid)
-		}
-		if live == ownerpkg.Alive && current != start {
-			return fmt.Errorf("%s %s carries reused child pid %d; touching nothing, lease retained", r.driver.Noun, p.ID, pid)
-		}
+	if err := r.listedChildrenPinned(p, children); err != nil {
+		return err
 	}
 	for _, child := range children {
 		if !slices.Contains(p.ChildPIDs, child.PID) {
@@ -360,6 +350,28 @@ func (r resource) verifyCurrentChildren(p Pane, children []adapterpkg.TerminalCh
 			if live == ownerpkg.Unknown || (live == ownerpkg.Alive && current == child.Start) {
 				return fmt.Errorf("%s %s no longer carries held child %d; touching nothing, lease retained", r.driver.Noun, p.ID, child.PID)
 			}
+		}
+	}
+	return nil
+}
+
+// listedChildrenPinned refuses a listed child that adopt did not pin, or one whose PID now names another process.
+func (r resource) listedChildrenPinned(p Pane, children []adapterpkg.TerminalChild) error {
+	pinned := make(map[int]string, len(children))
+	for _, child := range children {
+		pinned[child.PID] = child.Start
+	}
+	for _, pid := range p.ChildPIDs {
+		start, ok := pinned[pid]
+		current, live := r.sys.Process(pid)
+		switch {
+		case live == ownerpkg.Unknown:
+			return fmt.Errorf("cannot inspect held child %d; lease retained", pid)
+		case live == ownerpkg.Dead:
+		case !ok:
+			return fmt.Errorf("%s %s has an unpinned child %d; touching nothing, lease retained", r.driver.Noun, p.ID, pid)
+		case current != start:
+			return fmt.Errorf("%s %s carries reused child pid %d; touching nothing, lease retained", r.driver.Noun, p.ID, pid)
 		}
 	}
 	return nil
@@ -397,7 +409,8 @@ func (r resource) settle(ctx context.Context, ref adapterpkg.ResourceRef) (state
 	const step = 100 * time.Millisecond
 	for waited := time.Duration(0); ; waited += step {
 		s, p, err := r.observe(ctx, ref)
-		if err != nil || s == absent || waited >= r.sys.Grace {
+		// A terminal mid-teardown can read as inconsistent (macOS lists an exiting process as "(name)"), so keep polling; a lasting doubt still keeps the lease.
+		if (err == nil && s == absent) || waited >= r.sys.Grace {
 			return s, p, err
 		}
 		r.sys.Sleep(step)
