@@ -41,7 +41,7 @@ func (lab tmuxLab) start() map[string]int {
 
 func (lab tmuxLab) panes() map[string]int {
 	lab.t.Helper()
-	out, err := exec.Command("tmux", "-S", lab.socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}").Output()
+	out, err := exec.Command("tmux", "-f", "/dev/null", "-S", lab.socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}").Output()
 	panes := map[string]int{}
 	if err != nil {
 		return panes
