@@ -85,10 +85,10 @@ dibs sweep --confirm   # after the PR closes or merges
 Touch a heartbeat file at most every staleness/3. Extend a lease at the latest
 when one third of its TTL remains. A lease is reclaimable when its owner is
 dead **or** when it has expired. A live owner that misses its TTL renewal loses
-an unprotected time-bound lease at expiry; shell and protected leases stay held.
-A heartbeat older than its staleness makes the owner dead, so its shell and
-protected leases become reclaimable under the reclaim rule. Unknown liveness alone
-never permits reclaim for shell leases or protected leases; other time-bound
+an unprotected time-bound lease at expiry; shell, terminal, and protected leases stay held.
+A heartbeat older than its staleness makes the owner dead, so its shell, terminal,
+and protected leases become reclaimable under the reclaim rule. Unknown liveness alone
+never permits reclaim for shell, terminal, or protected leases; other time-bound
 leases may still be reclaimed at expiry. `extend` refuses expired leases and owners that are dead or unknown,
 except that a protected or terminal lease with a live owner reattaches after expiry while
 its resource is present (see below).
