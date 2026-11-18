@@ -188,15 +188,14 @@ Built-in rows apply when the table is on:
 | `scope` | `owner` | `30m` | - | - | - | - | - |
 
 The `scope` row is the scope lease itself: `dibs scope start` records it, so a
-scope lives while its owner does and is renewed every 30 minutes; an explicit
-`--ttl` may only shorten the 30-minute TTL and must fit the row's `max_lifetime`. It cannot be narrowed by owner kind, and
-`dibs scope end --confirm` drops it so the ended scope no longer holds its
-members. The `/scope` rows apply to the members of a [scope](../leases.md#scopes): on an
-owner-bound row the TTL is the renewal cadence, so a scope's shells, terminals,
-and worktrees are renewed every 30 minutes, and the 10 minute grace absorbs one
-wrong owner probe before a sweep acts. A worktree held by a pull request owner
-uses the `treehouse-worktree` row, owner-bound with an 8 hour cadence. Labs keep
-their row whatever owns them.
+scope lives while its owner does. An explicit `--ttl` may only shorten its
+30-minute TTL. This row has no `max_lifetime` and cannot be narrowed by owner
+kind. `dibs scope end --confirm` drops the row so the ended scope no longer
+holds its members. The `/scope` rows apply to the members of a
+[scope](../leases.md#scopes): their 30-minute TTL and 10-minute grace are
+recorded on each lease. A worktree held by a pull request owner uses the
+`treehouse-worktree` row, owner-bound with an 8 hour TTL. Labs keep their row
+whatever owns them.
 
 Job deadlines come from job classes, and a `process` row is refused. A row you
 configure replaces the built-in row with the same key; omitted fields are off.
@@ -221,7 +220,8 @@ An `owner` binding takes no `idle` or `max_lifetime`, a `time` binding takes no
 activity accept `idle`; today that is `shell`. Unknown fields and invalid rows
 fail `create` and `adopt` with code 2.
 
-`--ttl` on `create` or `adopt` may only shorten the selected row's TTL and must fit within `max_lifetime`. `--idle D` and
+`--ttl` on `create` or `adopt` may only shorten the selected row's TTL and
+must fit within `max_lifetime` when the row sets one. `--idle D` and
 `--max-lifetime D` may only tighten the row. Each lease records its effective
 policy when it is created, so later config edits, or turning the setting off,
 never loosen or tighten an existing lease. `--protect-live-owner` outranks a
