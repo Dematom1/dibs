@@ -47,8 +47,6 @@ func (m *Manager) Watch(ctx context.Context, id string) (SweepResult, error) {
 		}
 		return SweepResult{}, err
 	}
-	// shortcut: removing a held lock lets a starter that opened the old file run a second watcher; starts come once per create or adopt, so that needs two concurrent starts for one lease.
-	defer os.Remove(path)
 	host, err := machine()
 	if err != nil {
 		return SweepResult{}, err

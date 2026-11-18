@@ -189,7 +189,7 @@ When it is on, `create` and `adopt` start one detached `dibs __watch <id>` for a
 
 `Manager.Watch` lives exactly as long as its lease:
 
-- It holds an exclusive `flock` on `<dir>/watch/<lease-id>.lock`. A second watcher for the same lease exits at once, and the kernel drops the lock when the watcher dies.
+- It holds an exclusive `flock` on `<dir>/watch/<lease-id>.lock`. The lock file remains after exit; only its `flock` indicates a live watcher. A second watcher for the same lease exits at once, and the kernel drops the lock when the watcher dies.
 - It attaches to the owner's exit first (kqueue `EVFILT_PROC` with `NOTE_EXIT` on macOS, `pidfd_open` and `poll` on Linux 5.3 or newer), then checks the owner. Attaching first means an exit right after the check still wakes it. When it cannot attach, it falls back to waking once a minute.
 - It wakes on the owner's exit or after one minute (`watchInterval`), and reads the ledger again. It exits when the lease is gone, so a released lease ends its watcher within a minute. A wake that ends early without proving death, such as an exit event for a zombie whose `ps` read fails, makes the next wait a plain one-minute sleep, so an inconclusive event never spins.
 - An event only says when to look. When the owner check returns `dead` (the process is gone, a zombie, or its start identity changed), it runs `Manager.Sweep` with `Confirm`, the lease's `ID`, and `OwnerDead`. That is the confirmed sweep for this one lease: the [verdict](consumer-contract.md#reclaim-and-sweep) still applies every hold, so a `report` policy stays shadow-only (`report_only`), a grace period starts its clock, and a busy resource is kept. `unknown` liveness never reclaims, and expiry never wakes the watcher.
