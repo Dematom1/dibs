@@ -121,6 +121,25 @@ Examples:
   dibs scope start --key build-42 --owner 'exec:test -e /tmp/build-42.open'
   dibs create --adapter kind --owner scope:<id> --ttl 2h
   dibs scope end <id> --confirm`,
+	"handoff": `dibs handoff <id> --owner KIND:ID [--stale 15m] [--confirm] [--axi | --json]
+Hand a lease to a new owner, such as a worktree passing from its task scope to
+its pull request (--owner pr:OWNER/REPO#N). Needs DIBS_HANDOFF=1 or "handoff":
+true in the user config; off, it exits 2 naming the setting.
+Preview by default. --confirm records the new owner; the resource, expiry and
+recorded policy stay. A lease handed out of a scope is no longer its member, so
+dibs scope end never releases it. dibs explain shows the last handoff (from, at).
+The new owner must be proven alive: one that cannot be bound (a gone process,
+a closed or merged PR) exits 2 as on create, and one not alive under the state
+lock, such as an ended scope, is refused (owner_not_alive). A lease already
+owned by it reports already_done and changes nothing, so a retry converges.
+Output follows consumer contract 1: contract: 1 and a status (preview,
+handed_off, already_done); exit 0 success, 2 usage, 3 refusal with nothing
+changed and a stable reason: owner_not_alive, not_found, wrong_machine,
+cleanup_in_progress, job_lease, scope_nested, expired (a time-bound lease past
+its expiry; renew it first).
+Examples:
+  dibs handoff <id> --owner 'pr:acme/app#42'
+  dibs handoff <id> --owner 'pr:acme/app#42' --confirm`,
 	"reclaim": `dibs reclaim <id> [--confirm] [--axi | --json]
 Reclaim one lease only when its owner is proven dead on this machine. Preview by
 default. --confirm destroys the resource, verifies it is gone, then forgets the
@@ -344,6 +363,9 @@ Run dibs <command> --help for command flags.`
 	}
 	if scopesEnabled() && scopeHelp[command] != "" {
 		body += "\n" + scopeHelp[command]
+	}
+	if handoffEnabled() && command == "" {
+		body += "\n" + `Handoff (DIBS_HANDOFF=1 or "handoff": true): handoff.`
 	}
 	if command == "create" || command == "extend" {
 		body += "\n\n" + cadence

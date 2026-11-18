@@ -238,7 +238,7 @@ func TestProtectedStateFormat(t *testing.T) {
 	for _, bad := range []string{
 		`{"version":2,"leases":{"` + protected.ID + `":` + leaseJSON(t, protected) + `}}`,
 		`{"version":3,"leases":{"` + job.ID + `":` + leaseJSON(t, job) + `}}`,
-		`{"version":8,"leases":{}}`,
+		`{"version":9,"leases":{}}`,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(bad), 0600); err != nil {
 			t.Fatal(err)

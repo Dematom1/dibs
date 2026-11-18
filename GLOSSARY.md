@@ -25,6 +25,10 @@ A lease with no external resource that groups the leases of one unit of work and
 The caller's own id for the work travels as its idempotency key. It is not the place a pending lease records for its resource.
 _Avoid_: task, session, group
 
+**Handoff**:
+The explicit change of a lease's owner to a new owner proven alive, keeping its resource and expiry; a lease handed out of a scope stops being its member.
+_Avoid_: transfer, reassign, adopt
+
 **Lease ledger**:
 The authoritative collection of recorded leases and admission waiters for cooperating invocations on a machine.
 _Avoid_: cluster inventory, cross-host ledger

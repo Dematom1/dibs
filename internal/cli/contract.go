@@ -43,6 +43,9 @@ var reasonHints = map[string]string{
 	"scope_members":       "Run dibs scope end <id> --confirm to release the scope's leases and then forget it",
 	"scope_ended":         "Start a new scope with dibs scope start, choosing a new --key if the old one names the ended scope",
 	"not_scope":           "Run dibs release <id> for a lease that is not a scope",
+	"owner_not_alive":     "Hand the lease to an owner that is alive now; dibs explain <id> shows its current owner",
+	"job_lease":           "A job lease ends with its job; start a new lease for the new owner instead",
+	"scope_nested":        "Hand a scope to a pid, session, heartbeat, exec or pr owner; scopes never nest",
 }
 
 const keyRule = "--key must be 1-200 letters, digits or ._:/@+=- and start with a letter or digit"
@@ -187,6 +190,9 @@ func (app application) runContract(ctx context.Context, command string, args []s
 			"lease": outputpkg.LeaseView(e.Lease, e.Liveness, e.At, kube), "record": outputpkg.LeaseRecord(e.Lease, kube),
 			"liveness": string(e.Liveness), "expired": e.Expired, "this_machine": e.ThisMachine,
 			"sweep_would_reclaim": e.Sweep, "reclaim_would_reclaim": e.Reclaim, "why": e.Reason, "help": hints,
+		}
+		if h := e.Lease.Handoff; h != nil {
+			result["handoff"] = map[string]any{"from": h.From.String(), "at": h.At.Format(time.RFC3339)}
 		}
 		// Policy fields appear only where policies or resource activity exist, so other leases explain exactly as before.
 		if leasePoliciesEnabled() || e.Lease.Policy != nil || e.Verdict.Activity != nil {

@@ -52,6 +52,8 @@ type Config struct {
 	TerminalAdapters []string `json:"terminal_adapters,omitempty"`
 	// Scopes turns on dibs scope and the scope owner kind.
 	Scopes bool `json:"scopes"`
+	// Handoff turns on dibs handoff.
+	Handoff bool `json:"handoff"`
 }
 
 func hostMemory() (int64, error) {
@@ -188,6 +190,7 @@ type optIns struct {
 	TreehouseWorktree   bool     `json:"treehouse_worktree_adapter"`
 	TerminalAdapters    []string `json:"terminal_adapters"`
 	Scopes              bool     `json:"scopes"`
+	Handoff             bool     `json:"handoff"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -226,6 +229,9 @@ func TerminalAdapters() []string { return readOptIns().TerminalAdapters }
 
 // Scopes reports the scopes opt-in.
 func Scopes() bool { return readOptIns().Scopes }
+
+// Handoff reports the handoff opt-in.
+func Handoff() bool { return readOptIns().Handoff }
 
 // Policies strictly reads the configured policy rows without probing the host,
 // so a malformed table is an error rather than a silent default.

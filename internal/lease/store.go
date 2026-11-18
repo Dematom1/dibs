@@ -22,8 +22,9 @@ var leaseID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 // stateVersion is the newest state schema this binary reads and writes:
 // 3 adds live-owner protection, 4 adds idempotency keys and pending leases,
-// 5 adds lease policies and shell leases, 6 adds terminal leases, 7 adds scopes.
-const stateVersion = 7
+// 5 adds lease policies and shell leases, 6 adds terminal leases, 7 adds scopes,
+// 8 adds handoff records.
+const stateVersion = 8
 
 type store struct {
 	Version int `json:"version"`
@@ -221,6 +222,9 @@ func (s *store) validate() error {
 		}
 		if l.IsScope && (l.ResourceRef.Adapter != "none" || l.ResourceRef.Pending || l.Reservation != nil || l.Policy != nil || l.ProtectLiveOwner) || (l.KeyedBy == ScopeKind) != (l.IsScope && l.Key != "") {
 			return errors.New("invalid scope record")
+		}
+		if l.Handoff != nil && (s.Version < 8 || l.Handoff.From.Kind == "" || l.Handoff.At.IsZero()) {
+			return errors.New("invalid handoff record")
 		}
 		if l.DeadSince != nil && (l.Policy == nil || l.Policy.Grace == 0) {
 			return errors.New("invalid owner death record")
