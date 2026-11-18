@@ -65,6 +65,7 @@ dibs uses the XDG path on macOS too. The legacy fallback never moves or rewrites
 | `treehouse_worktree_adapter` | boolean | Allows new `treehouse-worktree` leases. See [Adapters](adapters.md#treehouse-worktree) |
 | `scopes` | boolean | Turns on `dibs scope` and the `scope:<id>` owner kind. See [Scopes](leases.md#scopes) |
 | `handoff` | boolean | Turns on `dibs handoff`. See [Handoff](leases.md#handoff) |
+| `lease_watcher` | boolean | Starts a watcher with each `pid:` or `session:` lease that reclaims it when its owner exits. See [Lease watcher](leases.md#lease-watcher) |
 
 `Config.Available` returns the usable budget: `cores - room_cores` cores and `memory - room_memory` bytes. It refuses a budget with non-positive totals, or owner room that is not below the totals.
 
@@ -97,6 +98,7 @@ A memory string is a non-negative integer with an optional unit: `GiB`, `MiB`, `
 | `DOCKER_HOST` | Docker-backed adapters | Must be unset. Managed adapters refuse it. |
 | `DIBS_PR_OWNER`, `DIBS_TREEHOUSE_WORKTREE`, `DIBS_SCOPES`, `DIBS_HANDOFF` | `newOwners`, `newAdapters`, `scopesEnabled`, `handoffEnabled` | Booleans that override the matching config opt-in either way. No `BERTH_*` alias. |
 | `TREEHOUSE_ROOT` | `treehouse-worktree` create and adopt | Pinned on the lease when set, then passed as `--root`; later calls clear it |
+| `DIBS_LEASE_WATCHER` | `leaseWatcherEnabled` | Boolean that overrides `lease_watcher` either way. No `BERTH_*` alias. |
 | `DIBS_LEASE` (and `BERTH_LEASE`) | Set by `startJob` | Lease ID, exported to the job child |
 
 The `DIBS_*` name wins whenever it is set, even when empty. `internal/compat/env.go` reads the legacy `BERTH_*` name only when the new one is unset. Each legacy name in use prints one warning on stderr.

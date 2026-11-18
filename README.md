@@ -85,20 +85,26 @@ the existing lease; use `dibs extend` to renew it.
 
 ## Group a unit of work (opt-in)
 
-With `"scopes": true` in your user `config.json`, or `DIBS_SCOPES=1`, a scope
-groups the leases of one task, session, or job and owns them. Pass your own id
-for the work as `--key`, so a restart gets the same scope back:
+With `"scopes": true` in your user `config.json`, or `DIBS_SCOPES=1`, a scope groups the leases of one task, session, or job and owns them. Pass your own id for the work as `--key`, so a restart gets the same scope back:
 
 ```sh
-dibs scope start --key task-7 --owner KIND:ID   # prints the scope id
+dibs scope start --key task-7 --owner KIND:ID
 dibs create --adapter kind --owner scope:<id> --ttl 2h
 dibs scope show <id>
-dibs scope end <id> --confirm                   # releases what the scope owns, newest first
+dibs scope end <id> --confirm
 ```
 
-A lease owned by `scope:<id>` lives while the scope is unexpired and its owner
-is alive. A scope is never forgotten while it still owns a lease. See
-[Scopes](docs/leases.md#scopes).
+A lease owned by `scope:<id>` lives while the scope is unexpired and its owner is alive. See [Scopes](docs/leases.md#scopes).
+
+## Reclaim when the owner exits (opt-in)
+
+Set `"lease_watcher": true` in your user `config.json`, or `DIBS_LEASE_WATCHER=1`.
+Then `create` and `adopt` start a small watcher for each lease owned by a
+`pid:` or `session:` process. It blocks on that process's exit, runs the
+ordinary confirmed sweep for that one lease, and exits; it also exits once the
+lease is released. Policy holds still apply, so an `action: report` policy only
+reports. Expiry never wakes it, so keep `dibs sweep --confirm` on a host timer
+as the backstop. Details: [docs/leases.md](docs/leases.md#lease-watcher).
 
 ## Hand a lease to a new owner (opt-in)
 

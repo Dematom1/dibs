@@ -267,6 +267,7 @@ func (app application) adopt(ctx context.Context, out io.Writer, mode outputpkg.
 	if err != nil {
 		return app.leaseError(out, mode, "adopt", err)
 	}
+	app.watch(l)
 	live := ownerpkg.Alive
 	if r.Pending != "" {
 		// A pending lease's owner was not rechecked here, so report what it is now.

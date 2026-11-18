@@ -19,6 +19,7 @@ When the `dibs` directory is missing and a legacy `berth` directory exists, `mig
 | `<dir>/` | `0700`, enforced on every open | State directory |
 | `<dir>/lock` | `0600` | Lock file. Never replaced or deleted. |
 | `<dir>/state.json` | `0600`, enforced on every open | Lease records and the job queue |
+| `<dir>/watch/<lease-id>.lock` | `0600` | Persistent lock file for the [lease watcher](leases.md#lease-watcher). The kernel releases its `flock` when the watcher exits; the file remains so every start contends on the same inode. |
 | `<dir>/resources/<lease-id>/` | `0700` | Private adapter files: `kubeconfig` (kind), `k3d` (k3d kubeconfig), or `compose.json` (resolved Compose config) |
 
 `openStore` runs `chmod` on the directory and on `state.json` even when they already exist. Test: `TestOpenStoreRestrictsExistingDirectory`.

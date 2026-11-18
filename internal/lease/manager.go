@@ -147,7 +147,10 @@ func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, bool, err
 		return Lease{}, false, r.ScopeUnavailable
 	}
 	if m.liveness(s, host)(r.Owner, now) != ownerpkg.Alive {
-		return Lease{}, false, ownerNotAlive(r.Owner, "owner became stale or unavailable while waiting; refresh the owner and retry dibs create")
+		if r.Owner.Kind == ScopeKind {
+			return Lease{}, false, refuse(HoldScopeEnded, "scope "+r.Owner.ID+" has ended; create requires a live scope")
+		}
+		return Lease{}, false, errors.New("owner became stale or unavailable while waiting; refresh the owner and retry dibs create")
 	}
 	l, err := newLease(r.Owner, r.TTL, r.Description, r.Labels, now)
 	if err != nil {
@@ -245,7 +248,6 @@ func (m *Manager) List(ctx context.Context, f Filter) (Listing, error) {
 	defer s.Close()
 	result := Listing{Leases: []ObservedLease{}, At: now}
 	selector := ownerpkg.CanonicalSelector(f.Owner)
-	check := m.liveness(s, host)
 	for _, id := range s.IDs() {
 		l := s.Leases[id]
 		if l.Machine == host && l.Reservation != nil {
@@ -255,7 +257,7 @@ func (m *Manager) List(ctx context.Context, f Filter) (Listing, error) {
 		if selector != "" && l.Owner.String() != selector {
 			continue
 		}
-		_, live := reclaimable(l, host, now, check)
+		_, live := reclaimable(l, host, now, m.liveness(s, host))
 		result.Leases = append(result.Leases, ObservedLease{detached(l), live})
 	}
 	return result, nil
@@ -320,9 +322,6 @@ func (m *Manager) Release(ctx context.Context, r ReleaseRequest) (ReleaseResult,
 	// Without the contract a foreign preview still succeeds and --confirm fails in releaseLease, as before.
 	if r.Contract && exists && l.Machine != host {
 		return ReleaseResult{}, refuse("wrong_machine", "run dibs release on the lease's machine")
-	}
-	if exists && l.IsScope && len(members(s, l.ID)) > 0 {
-		return ReleaseResult{}, refuse(HoldScopeMembers, "scope "+l.ID+" still owns leases; run dibs scope end "+l.ID+" --confirm to release them first")
 	}
 	if exists && r.Confirm && l.Machine == host && m.cleansUpOutsideLock(l) {
 		c, err := markReleasing(s, l)
@@ -420,14 +419,26 @@ func (m *Manager) restoreMarker(ctx context.Context, c outsideCleanup) {
 	}
 }
 
-type SweepRequest struct{ Confirm bool }
+type SweepRequest struct {
+	Confirm bool
+	// ID limits the sweep to one lease, and OwnerDead to a lease whose owner is proven dead.
+	ID        string
+	OwnerDead bool
+}
 
 func (m *Manager) Sweep(ctx context.Context, r SweepRequest) (SweepResult, error) {
 	s, host, now, err := m.open(ctx)
 	if err != nil {
 		return SweepResult{}, err
 	}
-	result, outside := sweep(ctx, s, host, now, r.Confirm, m.liveness(s, host), m.options.Adapters)
+	var result SweepResult
+	var outside []outsideCleanup
+	if r.ID == "" {
+		result, outside = sweep(ctx, s, host, now, r.Confirm, m.liveness(s, host), m.options.Adapters)
+	} else {
+		result = SweepResult{Reclaimed: []string{}, Eligible: []string{}, Unknown: []string{}, Failures: map[string]string{}, Held: map[string]string{}}
+		outside = sweepLease(ctx, s, r.ID, host, now, r.Confirm, r.OwnerDead, m.liveness(s, host), m.options.Adapters, &result, nil)
+	}
 	s.Close()
 	for _, c := range outside {
 		if _, err := m.releaseOutsideLock(ctx, c, false); err != nil {

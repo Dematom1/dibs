@@ -148,13 +148,13 @@ With the consumer contract on, `release` reports `preview`, `released`, or `alre
 
 ### Sweep
 
-`sweep` in `internal/lease/lease.go` walks leases in sorted ID order, with scopes after every other lease so one pass can release a scope's dead members before it decides whether the scope is empty. It records `unknown` owners, collects reclaimable leases as `eligible`, and, with `--confirm`, calls `releaseLease` on each eligible lease. A failed release goes into `Failures` and keeps its lease. Eligibility is still decided under the lock. Eligible leases whose adapter cleans up outside the lock are marked `releasing` and saved before `sweep` unlocks, then released one at a time through the same path as `Release`, and never with `DiscardUnlanded`. A failed cleanup retains the marker for a later retry. `dibs sweep` exits 1 when any failure occurred. Test: `TestSweepReclaimsOutsideLockWithoutDiscarding`. A second sweep after success is a no-op. Test: `TestSweepPreviewRetryAndIdempotence`.
+`sweep` in `internal/lease/lease.go` walks leases in sorted ID order, with scopes last so it can release dead members first. It records `unknown` owners, collects reclaimable leases as `eligible`, and, with `--confirm`, calls `releaseLease` on each eligible lease. A failed release goes into `Failures` and keeps its lease. Eligibility is still decided under the lock. Eligible leases whose adapter cleans up outside the lock are marked `releasing` and saved before `sweep` unlocks, then released one at a time through the same path as `Release`, and never with `DiscardUnlanded`. A failed cleanup retains the marker for a later retry. `dibs sweep` exits 1 when any failure occurred. Test: `TestSweepReclaimsOutsideLockWithoutDiscarding`. A second sweep after success is a no-op. Test: `TestSweepPreviewRetryAndIdempotence`.
 
 ### Reclaim and explain
 
 `Manager.Reclaim` in `internal/lease/pending.go` is a targeted reclaim that is stricter than both `release` and the reclaim rule above, with or without live-owner protection. It acts only when the owner check returns `dead` on this machine. An `alive` owner is refused even after expiry, and `unknown` liveness is refused. It previews without `--confirm`, then calls `releaseLease`, so a job lease whose leader is already gone and reaped is released without verifying its descendants, as in invariant 4. An absent lease is success. `Manager.Explain` reports the reclaim rule's answer, the targeted reclaim's answer, and a readable reason, without acting. Both need the consumer contract. Tests: `TestReclaimRequiresProvenDeath`, `TestExplainUnexpired`.
 
-dibs has no daemon. Reclaim happens only when someone runs `dibs sweep --confirm`, `dibs release --confirm`, `dibs reclaim --confirm`, or `dibs job` (whose admission reclaims eligible job leases). The help text tells users to run sweep from a host timer.
+dibs has no daemon. Reclaim happens only when someone runs `dibs sweep --confirm`, `dibs release --confirm`, `dibs reclaim --confirm`, or `dibs job` (whose admission reclaims eligible job leases), or when an opt-in [lease watcher](#lease-watcher) sees its owner exit. The help text tells users to run sweep from a host timer.
 
 ## Live-owner protection
 
@@ -179,15 +179,24 @@ Tests: `TestProtectedReclaimAndRenew`, `TestProtectedAdoptReattachesOnlyToPinned
 
 ## Scopes
 
-A scope groups the leases of one unit of work, such as an agent task, a coding-agent session, a CI job or a script, and owns them. It needs the `scopes` user config opt-in or `DIBS_SCOPES=1`; without it, `dibs scope` and the `scope:` owner kind exit 2 naming the setting, and nothing else on this page changes. The code is `internal/lease/scope.go` and `internal/cli/scope.go`.
+A scope groups and owns the leases of one unit of work. It requires `"scopes": true` in user config or `DIBS_SCOPES=1`; otherwise scope commands and the `scope:` owner kind are off. `dibs scope start --key K` gets or creates a scope keyed by the caller's task or session id. Create or adopt members with `--owner scope:<id>`. `dibs scope end <id> --confirm` releases the members newest first. A scope remains recorded while any member names it as owner.
 
-- **A scope is a lease with no external resource.** `StartScope` records an `is_scope` lease with adapter `none`, its own owner and TTL, and the description `scope` followed by its key. `dibs extend <id>` renews it like any lease. A scope cannot be owned by another scope.
-- **`scope:<id>` is an owner kind.** `--owner scope:<id>` on `create` or `adopt` makes the lease a member of that scope. `ScopeOwner` only parses the ID. `Manager.liveness` resolves it against the ledger under the lock: `alive` while the scope lease exists, is unexpired and its own owner is alive; `dead` once the scope is absent, not a scope, or itself reclaimable; `unknown` while its own owner is unknown and it is unexpired. Every lease command that checks owners uses this view, so a member follows the reclaim rule above like any other lease. A member cannot join a scope that is not alive; that refusal has reason `scope_ended`.
-- **The key is the caller's own id.** `dibs scope start --key K` is get-or-create through `keyed`: the same key and owner return the same scope while it is not reclaimable, a different owner or a non-scope lease with that key is `key_conflict`, and a key whose scope has ended is `scope_ended`. Once the ended scope is forgotten, the key is free again.
-- **Ending is explicit.** `EndScope` previews the members, newest first. With `--confirm` it sets the scope's expiry to now and saves, which makes every member's owner dead so nothing new can join. Then it releases each member through `Manager.Release`, the ordinary release with proof, and forgets the scope once no member remains. A failed or refused release keeps that member and the scope, and a rerun releases only what remains. An absent scope is `already_done`.
-- **A scope is forgotten only when it has no members.** `holdScope` turns a scope's reclaim verdict into the hold `scope_members` while any lease names it as owner, in `sweep`, `reclaim` and `explain`, and `release` refuses such a scope with `scope_members`.
+## Lease watcher
 
-Tests: `TestScopeStartEndAndForget`, `TestEndScopeReleasesNewestFirst`, `TestScopeOwnerLiveness`, `TestSweepReleasesMembersThenTheirScope`, `TestSweepHoldsScopeWhileAMemberRemains`, `TestScopeCommands`.
+The lease watcher is off by default. `"lease_watcher": true` in the user config or `DIBS_LEASE_WATCHER=1` turns it on; the variable overrides the config either way. With the setting absent, nothing on this page changes. [Issue 55](https://github.com/Dematom1/dibs/issues/55) records the decision.
+
+When it is on, `create` and `adopt` start one detached `dibs __watch <id>` for a lease whose owner is `pid:` or `session:` (`Watchable` in `internal/lease/watch.go`). A job reservation gets none, because `dibs job` already waits on its child. A remote `create` starts the watcher on the remote machine, under that machine's config. A failed start is not an error; the next sweep still reclaims the lease. `__watch` is internal and not part of the CLI contract.
+
+`Manager.Watch` lives exactly as long as its lease:
+
+- It holds an exclusive `flock` on `<dir>/watch/<lease-id>.lock`. The lock file remains after exit; only its `flock` indicates a live watcher. A second watcher for the same lease exits at once, and the kernel drops the lock when the watcher dies.
+- It attaches to the owner's exit first (kqueue `EVFILT_PROC` with `NOTE_EXIT` on macOS, `pidfd_open` and `poll` on Linux 5.3 or newer), then checks the owner. Attaching first means an exit right after the check still wakes it. When it cannot attach, it falls back to waking once a minute.
+- It wakes on the owner's exit or after one minute (`watchInterval`), and reads the ledger again. It exits when the lease is gone, so a released lease ends its watcher within a minute. A wake that ends early without proving death, such as an exit event for a zombie whose `ps` read fails, makes the next wait a plain one-minute sleep, so an inconclusive event never spins.
+- An event only says when to look. When the owner check returns `dead` (the process is gone, a zombie, or its start identity changed), it runs `Manager.Sweep` with `Confirm`, the lease's `ID`, and `OwnerDead`. That is the confirmed sweep for this one lease: the [verdict](consumer-contract.md#reclaim-and-sweep) still applies every hold, so a `report` policy stays shadow-only (`report_only`), a grace period starts its clock, and a busy resource is kept. `unknown` liveness never reclaims, and expiry never wakes the watcher.
+- It never retries. After one reclaim attempt it exits, and a retained lease waits for the next `dibs sweep --confirm`. Keep the host timer: it is the backstop for a dead watcher, a reboot, a grace period, and every owner the watcher cannot follow.
+- It holds no state beyond its lock file, and killing it changes no guarantee.
+
+Tests: `TestWatcherReclaimsOnOwnerExit`, `TestWatcherHonorsReportPolicy`, `TestWatcherIgnoresExpiryAndExitsOnRelease`, `TestWatcherIsSingle`, `TestWatcherThrottlesInconclusiveExit`, `TestLeaseWatcherOptIn`.
 
 ## Handoff
 
@@ -228,7 +237,8 @@ Reviewers check every change to `internal/lease/lease.go`, `internal/lease/manag
 8. **PID owners pin start identity.** A reused PID reads as `dead`, never as the original owner. The registry's `Check` compares the recorded identity with the live one. Test: `TestOwnerLiveness`.
 9. **A late renew never recreates.** A protected lease reattaches only to the same lease ID and a present resource. Every refusal leaves the record unchanged. Test: `TestProtectedReclaimAndRenew`.
 10. **Job deadlines never move.** `extendLease` refuses reservations. Test: `TestJobsRealProcesses` covers the job lifecycle. See [Jobs](jobs.md#invariants).
-11. **A scope outlives its members.** No path forgets a scope while a lease names it as owner, and ending a scope releases only what the scope owns. Tests: `TestSweepHoldsScopeWhileAMemberRemains`, `TestScopeStartEndAndForget`.
+
+11. **A scope outlives its members.** No path forgets a scope while a lease names it as owner, and ending a scope releases only its members. Tests: `TestSweepHoldsScopeWhileAMemberRemains`, `TestScopeStartEndAndForget`.
 
 ## Owner extensions
 
