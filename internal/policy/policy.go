@@ -69,6 +69,8 @@ func Defaults() map[string]Policy {
 		rows[terminal] = Policy{Binding: Owner, TTL: 8 * time.Hour, Action: Destroy}
 		rows[terminal+"/scope"] = scoped(rows[terminal])
 	}
+	// The scope lease itself lives while its owner does, renewed every 30m.
+	rows["scope"] = Policy{Binding: Owner, TTL: 30 * time.Minute, Action: Destroy}
 	// A scope renews its members every 30m, and a grace absorbs one wrong owner probe before cleanup.
 	rows["shell/scope"] = scoped(rows["shell"])
 	rows["treehouse-worktree/scope"] = scoped(rows["treehouse-worktree"])
@@ -122,7 +124,8 @@ func Table(rows map[string]Row, kinds Kinds) (map[string]Policy, error) {
 		if resource == "process" {
 			return nil, errors.New(`policy "process": job deadlines come from job classes, not lease policies`)
 		}
-		if !contains(kinds.Resources, resource) || (scoped && !contains(kinds.Owners, owner)) {
+		// "scope" names the scope lease itself, which no owner kind narrows.
+		if (key != "scope" && !contains(kinds.Resources, resource)) || (scoped && (resource == "scope" || !contains(kinds.Owners, owner))) {
 			return nil, fmt.Errorf("policy %q: key must be a resource kind (%s), optionally /<owner kind> (%s)", key, strings.Join(kinds.Resources, ", "), strings.Join(kinds.Owners, ", "))
 		}
 		p, err := parse(key, rows[key])

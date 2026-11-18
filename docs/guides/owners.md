@@ -185,8 +185,13 @@ Built-in rows apply when the table is on:
 | `treehouse-worktree/scope` | `owner` | `30m` | - | - | - | `10m` | - |
 | `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - | - |
 | `none` | `time` | `8h` | - | - | - | - | - |
+| `scope` | `owner` | `30m` | - | - | - | - | - |
 
-The `/scope` rows apply to the members of a [scope](../leases.md#scopes): on an
+The `scope` row is the scope lease itself: `dibs scope start` records it, so a
+scope lives while its owner does and is renewed every 30 minutes; an explicit
+`--ttl` replaces the 30 minutes. It cannot be narrowed by owner kind, and
+`dibs scope end --confirm` drops it so the ended scope no longer holds its
+members. The `/scope` rows apply to the members of a [scope](../leases.md#scopes): on an
 owner-bound row the TTL is the renewal cadence, so a scope's shells, terminals,
 and worktrees are renewed every 30 minutes, and the 10 minute grace absorbs one
 wrong owner probe before a sweep acts. A worktree held by a pull request owner

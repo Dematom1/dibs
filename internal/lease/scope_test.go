@@ -9,6 +9,7 @@ import (
 	"time"
 
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 func scopeManager(t *testing.T) *Manager {
@@ -288,5 +289,67 @@ func TestScopeRecordsNeedVersionSeven(t *testing.T) {
 		if err := s.validate(); err == nil {
 			t.Fatalf("%s accepted", name)
 		}
+	}
+}
+
+// An owner-bound scope outlives its TTL while its owner lives, so its members
+// stay alive; ending it still makes their owner dead and releases them.
+func TestOwnerBoundScope(t *testing.T) {
+	ctx := context.Background()
+	m := scopeManager(t)
+	owner, stop := liveProcess(t)
+	bound := &policypkg.Policy{Row: "scope", Binding: policypkg.Owner, TTL: 30 * time.Minute, Action: policypkg.Destroy}
+	start := func() (Lease, Lease) {
+		scope, _, err := m.StartScope(ctx, ScopeRequest{Owner: owner, TTL: 30 * time.Minute, Policy: bound})
+		if err != nil || scope.Policy == nil || scope.Policy.Row != "scope" {
+			t.Fatalf("start = %+v %v", scope, err)
+		}
+		member, _, err := m.Create(ctx, CreateRequest{Owner: scopeOwner(scope.ID), TTL: time.Hour, Adapter: "none"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scope, member
+	}
+	check := func(member Lease, now time.Time) ownerpkg.Liveness {
+		s, err := m.openStore(ctx, m.options.Directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		return m.liveness(s, member.Machine)(member.Owner, now)
+	}
+	scope, member := start()
+	if got := check(member, time.Now().Add(2*time.Hour)); got != ownerpkg.Alive {
+		t.Fatalf("owner-bound scope past its TTL = %s, want alive", got)
+	}
+	// A member on another machine cannot be released here, so ending keeps the scope.
+	s, err := m.openStore(ctx, m.options.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stuck := s.Leases[member.ID]
+	stuck.Machine = "elsewhere"
+	s.Leases[member.ID] = stuck
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	ended, err := m.EndScope(ctx, scope.ID, true)
+	if err != nil || ended.Forgotten || len(ended.Failures) != 1 {
+		t.Fatalf("end = %+v %v", ended, err)
+	}
+	if got := check(Lease{Owner: member.Owner, Machine: scope.Machine}, time.Now()); got != ownerpkg.Dead {
+		t.Fatalf("ended owner-bound scope = %s, want dead", got)
+	}
+	if _, _, err := m.Create(ctx, CreateRequest{Owner: scopeOwner(scope.ID), TTL: time.Hour, Adapter: "none"}); reason(err) != HoldScopeEnded {
+		t.Fatalf("an ended scope took a member: %v", err)
+	}
+	_, member = start()
+	stop()
+	if got := check(member, time.Now()); got != ownerpkg.Dead {
+		t.Fatalf("owner-bound scope whose owner died = %s", got)
+	}
+	if v := diskVersion(t, m); v != 7 {
+		t.Fatalf("state version with a scope policy = %d, want 7", v)
 	}
 }

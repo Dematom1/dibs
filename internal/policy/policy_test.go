@@ -38,6 +38,20 @@ func TestDefaultsCoverEveryResource(t *testing.T) {
 	if p, _ := Resolve(table, "kind", "scope"); p.Row != "kind" {
 		t.Fatalf("scope-owned lab = %+v", p)
 	}
+	// The scope lease itself is owner-bound and renewed every 30m.
+	if p, _ := Resolve(table, "scope", "pid"); p.Row != "scope" || p.Binding != Owner || p.TTL != 30*time.Minute || p.check(p.Row) != nil {
+		t.Fatalf("scope default = %+v", p)
+	}
+}
+
+func TestScopeRowIsConfigurableButNotNarrowed(t *testing.T) {
+	table, err := Table(map[string]Row{"scope": {Binding: "time", TTL: "2h"}}, kinds)
+	if err != nil || table["scope"].Binding != Time || table["scope"].TTL != 2*time.Hour {
+		t.Fatalf("configured scope row = %+v, %v", table["scope"], err)
+	}
+	if _, err := Table(map[string]Row{"scope/pid": {Binding: "owner"}}, kinds); err == nil || !strings.Contains(err.Error(), "key must be a resource kind") {
+		t.Fatalf("scope/pid accepted: %v", err)
+	}
 }
 
 func TestConfiguredRowsReplaceAndNarrow(t *testing.T) {

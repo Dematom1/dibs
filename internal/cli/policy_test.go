@@ -137,6 +137,37 @@ func TestPolicyRowForScopeOwner(t *testing.T) {
 	}
 }
 
+// With policies on, a scope records its own owner-bound row; an explicit --ttl still applies; off, nothing changes.
+func TestScopeStartRecordsItsPolicy(t *testing.T) {
+	t.Setenv("DIBS_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_CONSUMER_CONTRACT", "1")
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	start := func(args ...string) map[string]any {
+		scope := jsonRun(t, 0, append([]string{"scope", "start", "--owner", owner}, args...)...)["scope"].(map[string]any)
+		expires, err := time.Parse(time.RFC3339Nano, scope["expires"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope["ttl"] = time.Until(expires).Round(time.Minute).String()
+		return scope
+	}
+	if scope := start(); scope["ttl"] != "8h0m0s" {
+		t.Fatalf("scope with policies off = %v", scope)
+	}
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	scope := start()
+	explained := jsonRun(t, 0, "explain", scope["id"].(string))
+	if p := explained["policy"].(map[string]any); scope["ttl"] != "30m0s" || p["row"] != "scope" || p["binding"] != "owner" || p["source"] != "lease" || explained["held_because"] != "owner_alive" {
+		t.Fatalf("scope with policies on = %v, explain %v", scope, explained)
+	}
+	if scope := start("--ttl", "8h"); scope["ttl"] != "8h0m0s" {
+		t.Fatalf("explicit --ttl 8h = %v", scope)
+	}
+}
+
 type policyShell struct{ destroyed *bool }
 
 func (p policyShell) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {
