@@ -29,7 +29,7 @@ The SSH handshake compares this string exactly. See [Remote jobs over SSH](remot
 4. It maps the aliases: `up` to `create`; `ls`, `ps`, and `who` to `list`; and `down` to `release`.
 5. `help` and `help <command>` print help.
 6. An unknown command exits 2.
-7. `agent`, `setup`, `machine`, `job`, `adopt`, and `orphans` have their own parsers: `runAgent`, `runSetup`, `runMachine`, `runJob`, and `runInventory`.
+7. `agent`, `setup`, `machine`, `job`, `adopt`, `orphans`, and `scope` have their own parsers: `runAgent`, `runSetup`, `runMachine`, `runJob`, `runInventory`, and `runScope`.
 8. The lease commands (`create`, `list`, `extend`, `release`, `sweep`, and `env`) share one `flag.FlagSet`. It registers only the flags that the command accepts.
 
 `parseFlags` in `internal/cli/flags.go` moves positional arguments after the flags, so `extend <id> --ttl 1h` and `extend --ttl 1h <id>` mean the same thing. `job` does not use it: everything after the first `--` belongs to the child.
@@ -49,6 +49,9 @@ The SSH handshake compares this string exactly. See [Remote jobs over SSH](remot
 | `reconcile` | `--confirm` (needs the `consumer_contract` opt-in) | optional lease ID |
 | `reclaim` | `--confirm` (needs the `consumer_contract` opt-in) | lease ID |
 | `explain` | none (needs the `consumer_contract` opt-in) | lease ID |
+| `scope start` | `--key`, `--owner`, `--ttl` (default `8h`), `--stale` (default `15m`) (all `scope` subcommands need the `scopes` opt-in, otherwise exit 2) | none |
+| `scope end` | `--confirm` | scope ID |
+| `scope show` | `--key`, `--full` | scope ID, or none with `--key` |
 | `orphans` | `--context` | none |
 | `machine install` | `--file` (required) | machine name |
 | `setup hooks` | `--remove` | none |
@@ -63,6 +66,7 @@ Behavior lives in the component docs:
 - `create`, `list`, `extend`, `release`, and `sweep`: [Leases](leases.md).
 - `adopt`, `orphans`, and the adapter flags: [Adapters](adapters.md).
 - `--pending`, `--key`, `reconcile`, `reclaim`, `explain`, and the contract form of `extend` and `release`: [Consumer contract](consumer-contract.md).
+- `scope` and the `scope:<id>` owner: [Scopes](leases.md#scopes).
 - `job`: [Jobs](jobs.md).
 - `agent`, `machine install`, and `--machine`: [Remote jobs over SSH](remote.md).
 - `setup hooks`: [Agent hooks](hooks.md).
@@ -86,6 +90,7 @@ Behavior lives in the component docs:
 `commandHelp` in `internal/cli/help.go` holds the help for each command. `help` adds three things:
 
 - The `cadence` constant, for `create` and `extend`.
+- The `scopeHelp` lines, for the command list, `create`, and `adopt`, only while scopes are on, so the default help is unchanged.
 - Lines about output modes, for every command except `agent`.
 - The `exitCodes` constant, for every command.
 
@@ -111,7 +116,7 @@ The `exitCodes` constant in `internal/cli/help.go` is the contract. The [command
 | Child's code | `dibs job`: the child ran to completion |
 | `124` | `dibs job`: the deadline fired before the child was confirmed exited, or completion could not be verified at the deadline (the coreutils `timeout` convention) |
 | `75` | `dibs job`: no slot freed within `--wait` (`EX_TEMPFAIL`). No child started. |
-| `3` | `dibs extend` refused a lease with live-owner protection. `reason` is `owner_dead`, `owner_unknown`, `resource_absent`, or `resource_unknown`, and the lease is unchanged. The `extend` help states this. Unprotected leases keep exit 1. With the consumer contract on (`DIBS_CONSUMER_CONTRACT=1` or `"consumer_contract": true`), every refusal by `reconcile`, `reclaim`, `explain`, `extend`, `release`, or a `--pending`/`--key` invocation exits 3 with a stable `reason`, and nothing changes. |
+| `3` | `dibs extend` refused a lease with live-owner protection. `reason` is `owner_dead`, `owner_unknown`, `resource_absent`, or `resource_unknown`, and the lease is unchanged. The `extend` help states this. Unprotected leases keep exit 1. With the consumer contract on (`DIBS_CONSUMER_CONTRACT=1` or `"consumer_contract": true`), every refusal by `reconcile`, `reclaim`, `explain`, `extend`, `release`, or a `--pending`/`--key` invocation exits 3 with a stable `reason`, and nothing changes. `dibs scope` refusals always exit 3 this way. |
 | `76` | SSH transport or protocol failure after SSH started. The remote result is unknown. A remote child that exits 76 also returns 76, so the code alone does not prove a transport failure. Check stderr for the `SSH transport/protocol failed` line. |
 | `128 + signal` | `dibs job`: a signal ended the child |
 | `125` | `dibs job`: the helper exited before it ran the child, or the child's wait status was unavailable |

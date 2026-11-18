@@ -20,12 +20,17 @@ _Avoid_: reservation, intent, placeholder
 A caller-chosen name for one live lease on a machine, so that a retried request returns that lease instead of acting twice.
 _Avoid_: lease ID, label
 
+**Scope**:
+A lease with no external resource that groups the leases of one unit of work and owns them through the `scope:<id>` owner kind; it is forgotten only once it owns no lease.
+The caller's own id for the work travels as its idempotency key. It is not the place a pending lease records for its resource.
+_Avoid_: task, session, group
+
 **Lease ledger**:
 The authoritative collection of recorded leases and admission waiters for cooperating invocations on a machine.
 _Avoid_: cluster inventory, cross-host ledger
 
 **Owner**:
-The identifiable process, session holder, heartbeat source, or pull request whose liveness supports a lease.
+The identifiable process, session holder, heartbeat source, pull request, liveness command, or scope whose liveness supports a lease.
 An owner is distinct from the machine's interactive user and from the job's child process.
 _Avoid_: user, child, resource
 

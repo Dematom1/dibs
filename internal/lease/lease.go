@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
@@ -34,6 +35,8 @@ type Lease struct {
 	// DeadSince is when a confirmed sweep first saw the owner dead, so a grace period can run.
 	DeadSince *time.Time `json:"owner_dead_since,omitempty"`
 	Releasing *time.Time `json:"releasing,omitempty"`
+	// IsScope marks a scope: a lease with no external resource that owns its members through scope:<id>.
+	IsScope bool `json:"is_scope,omitempty"`
 }
 
 func newLease(owner ownerpkg.Reference, ttl time.Duration, resources string, labels map[string]string, now time.Time) (Lease, error) {
@@ -197,9 +200,13 @@ type SweepResult struct {
 func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry) (SweepResult, []outsideCleanup) {
 	r := SweepResult{Reclaimed: []string{}, Eligible: []string{}, Unknown: []string{}, Failures: map[string]string{}, Held: map[string]string{}}
 	var outside []outsideCleanup
-	for _, id := range s.IDs() {
+	ids := s.IDs()
+	// Scopes go last, so one pass releases dead members before it decides whether their scope is empty.
+	sort.SliceStable(ids, func(i, j int) bool { return !s.Leases[ids[i]].IsScope && s.Leases[ids[j]].IsScope })
+	for _, id := range ids {
 		l := s.Leases[id]
 		v := decide(ctx, l, host, now, check, adapters)
+		holdScope(s, l, &v)
 		if v.Liveness == ownerpkg.Unknown {
 			r.Unknown = append(r.Unknown, id)
 		}

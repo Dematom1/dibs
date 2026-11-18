@@ -24,6 +24,10 @@ const (
 	HoldResourceBusy    = "resource_busy"
 	HoldResourceUnknown = "resource_unknown"
 	HoldReportOnly      = "report_only"
+	// HoldScopeMembers keeps an ended scope until its members are gone.
+	HoldScopeMembers = "scope_members"
+	// HoldScopeEnded refuses a new member, or a keyed start, for a scope that has ended.
+	HoldScopeEnded = "scope_ended"
 )
 
 // Verdict is the reclaim decision for one lease and the reason for it.

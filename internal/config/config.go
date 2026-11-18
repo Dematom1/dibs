@@ -50,6 +50,8 @@ type Config struct {
 	TreehouseWorktree bool `json:"treehouse_worktree_adapter"`
 	// TerminalAdapters opts in to terminal adoption and discovery; DIBS_TERMINAL_ADAPTERS overrides it.
 	TerminalAdapters []string `json:"terminal_adapters,omitempty"`
+	// Scopes turns on dibs scope and the scope owner kind.
+	Scopes bool `json:"scopes"`
 }
 
 func hostMemory() (int64, error) {
@@ -185,6 +187,7 @@ type optIns struct {
 	LeasePolicies       bool     `json:"lease_policies"`
 	TreehouseWorktree   bool     `json:"treehouse_worktree_adapter"`
 	TerminalAdapters    []string `json:"terminal_adapters"`
+	Scopes              bool     `json:"scopes"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -220,6 +223,9 @@ func TreehouseWorktree() bool { return readOptIns().TreehouseWorktree }
 
 // TerminalAdapters reports the terminal_adapters opt-in list.
 func TerminalAdapters() []string { return readOptIns().TerminalAdapters }
+
+// Scopes reports the scopes opt-in.
+func Scopes() bool { return readOptIns().Scopes }
 
 // Policies strictly reads the configured policy rows without probing the host,
 // so a malformed table is an error rather than a silent default.

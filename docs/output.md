@@ -49,6 +49,9 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 | `reconcile` | `contract`, `count`, `help`, `results`, `status`. Each result has `id`, `status`, `resource_adapter`, `resource_name`, `matches`, and `conflicts`. |
 | `reclaim` | `contract`, `help`, `id`, `status`. Adds `liveness` unless the lease was already gone. |
 | `explain` | `contract`, `expired`, `help`, `lease`, `liveness`, `reclaim_would_reclaim`, `record`, `status`, `sweep_would_reclaim`, `this_machine`, `why` |
+| `scope start` | `contract`, `help`, `id`, `scope` (a lease row), `status` |
+| `scope show` | `contract`, `count`, `help`, `id`, `leases` (one row per lease the scope owns), `record`, `records`, `scope`, `status` |
+| `scope end` | `contract`, `help`, `id`, `status`. A preview adds `release`, the IDs it would release, newest first. With `--confirm` it adds `released`, `retained`, and `forgotten`; when a lease is retained it also adds `code`, `error`, `exit_code` (1), and `failures`. |
 | A consumer contract refusal | `code`, `contract`, `error`, `exit_code` (3), `help`, `reason`, and `id` when the command names a lease (absent on a refused `create`) |
 | `sweep` | `confirmed`, `eligible`, `reclaimed`, `unknown`. Adds `help` when not confirmed. Adds `code`, `error`, `exit_code`, and `failures` on failure. |
 | `adopt` | `help`, `lease`, `record` |
@@ -59,7 +62,7 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 
 Parts of the map:
 
-- `LeaseView` in `internal/output/view.go` builds every lease row with one fixed key set: `id`, `owner`, `liveness`, `machine`, `age`, `expires`, `resources`, `resource`, `resource_adapter`, `resource_name`, `labels`, `kubeconfig`, `cores`, `memory`, `memory_bytes`, and `class`, plus `protect_live_owner: true` only for a protected lease, `pending: true` only for a pending lease, `key` only for a keyed lease, and `path` only for a lease that records a worktree slot, so other output keeps its shape. `liveness` is always `alive`, `dead`, or `unknown`; protection is shown by `protect_live_owner`, never inside `liveness`. `memory` is a string with a `B` suffix. Rows for non-job leases report zeros and an empty class.
+- `LeaseView` in `internal/output/view.go` builds every lease row with one fixed key set: `id`, `owner`, `liveness`, `machine`, `age`, `expires`, `resources`, `resource`, `resource_adapter`, `resource_name`, `labels`, `kubeconfig`, `cores`, `memory`, `memory_bytes`, and `class`, plus `protect_live_owner: true` only for a protected lease, `pending: true` only for a pending lease, `key` only for a keyed lease, `is_scope: true` only for a scope, and `path` only for a lease that records a worktree slot, so other output keeps its shape. `liveness` is always `alive`, `dead`, or `unknown`; protection is shown by `protect_live_owner`, never inside `liveness`. `memory` is a string with a `B` suffix. Rows for non-job leases report zeros and an empty class.
 - `LeaseRecord` in `internal/output/view.go` is the stored lease encoded to JSON and decoded back with `UseNumber`, plus `kubeconfig`. `protect_live_owner` appears only when true. See [State](state.md#format-version-2).
 - `BudgetView` reports `used_cores`, `used_memory_bytes`, `usable_cores`, `usable_memory_bytes`, `room_cores`, `room_memory_bytes`, and a one-line `summary`. If the config fails to load, `list` still succeeds, and `budget` holds only the summary `jobs: budget unavailable (check DIBS_CONFIG)`. Test: `TestBudgetSummary`, `TestBrokenBudgetStillLists`.
 

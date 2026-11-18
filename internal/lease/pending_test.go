@@ -601,9 +601,9 @@ func TestVersionFourValidation(t *testing.T) {
 	if err := s.validate(); err == nil {
 		t.Fatal("version 3 accepted a pending record")
 	}
-	s.Version = 7
+	s.Version = 8
 	if err := s.validate(); err == nil {
-		t.Fatal("version 7 accepted")
+		t.Fatal("version 8 accepted")
 	}
 }
 

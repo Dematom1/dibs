@@ -58,6 +58,9 @@ func (r Registry) Bind(ctx context.Context, value string, stale time.Duration, n
 	if !ok && kind == "exec" {
 		return Reference{}, errors.New("the exec owner is off; " + execOptIn)
 	}
+	if !ok && kind == "scope" {
+		return Reference{}, errors.New(`the scope owner is off; set DIBS_SCOPES=1 or "scopes": true in the user config`)
+	}
 	if !ok {
 		names := r.Names()
 		return Reference{}, fmt.Errorf("unknown owner kind %q; use %s, or %s", kind, strings.Join(names[:len(names)-1], ", "), names[len(names)-1])

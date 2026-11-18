@@ -92,6 +92,35 @@ and conflict exit 3. Unknown exits 1. Age and names never decide a match.
 Examples:
   dibs reconcile
   dibs reconcile <id> --confirm`,
+	"scope": `dibs scope start [--key K] [--owner KIND:ID] [--ttl 8h] [--stale 15m] [--axi | --json]
+dibs scope end <id> [--confirm] [--axi | --json]
+dibs scope show <id> | --key K [--full] [--axi | --json]
+A scope is a lease with no external resource that groups the leases of one unit
+of work and owns them: lease with --owner scope:<id> on create or adopt. Needs
+DIBS_SCOPES=1 or "scopes": true in the user config; off, every scope command
+and the scope owner exit 2 naming the setting.
+start gets or creates a scope. --key K is the caller's own id for the work: the
+same key and owner return the same live scope (status already_done), another
+owner is key_conflict, and an ended scope is scope_ended. Owner and TTL default
+as in create; a scope cannot be owned by another scope. Renew it with dibs
+extend <id>. Statuses: created, already_done.
+scope:<id> is alive while the scope exists, is unexpired and its owner is alive;
+dead once the scope is absent or itself reclaimable; unknown while its owner is.
+end previews the leases the scope owns. --confirm expires the scope, releases
+each of them newest first with the ordinary release, and forgets the scope once
+none remain. A failed release keeps that lease and the scope (exit 1, failures);
+rerun to retry. Statuses: preview, ended, already_done.
+show prints the scope and each lease it owns with its owner liveness.
+A scope with leases is never forgotten: sweep holds it (scope_members) until its
+leases are gone, and release and reclaim refuse it (exit 3, scope_members).
+Scope output follows consumer contract 1 whether or not that contract is on:
+contract: 1 and a status; exit 0 success, 1 operation failed with records
+retained, 2 usage, 3 refusal with nothing changed and a stable reason:
+key_conflict, scope_ended, not_scope, not_found, wrong_machine.
+Examples:
+  dibs scope start --key build-42 --owner 'exec:test -e /tmp/build-42.open'
+  dibs create --adapter kind --owner scope:<id> --ttl 2h
+  dibs scope end <id> --confirm`,
 	"reclaim": `dibs reclaim <id> [--confirm] [--axi | --json]
 Reclaim one lease only when its owner is proven dead on this machine. Preview by
 default. --confirm destroys the resource, verifies it is gone, then forgets the
@@ -261,6 +290,16 @@ Examples:
   dibs job --class suite --wait 0 -- just check`,
 }
 
+// scopeHelp joins the help only while scopes are on, so default help bytes stay unchanged.
+var scopeHelp = map[string]string{
+	"": `Scopes (DIBS_SCOPES=1 or "scopes": true): scope start, scope end, scope show.`,
+	"create": `scope:<id> (DIBS_SCOPES=1 or "scopes": true) makes the lease a member of that
+scope, owned by it: alive while the scope exists, is unexpired and its owner is
+alive; dead once it is absent or ended. dibs scope end <id> --confirm releases it.`,
+	"adopt": `--owner scope:<id> (DIBS_SCOPES=1 or "scopes": true) makes the lease a member
+of that scope, owned by it; dibs scope end <id> --confirm releases it.`,
+}
+
 var worktreeHelp = map[string]string{
 	"adopt": `dibs adopt treehouse-worktree <slot-path> --lease-id ID --owner KIND:ID --ttl D
   [--landed-exclude-remote NAME ...] [--key K] [--protect-live-owner]
@@ -302,6 +341,9 @@ Run dibs <command> --help for command flags.`
 	// Opt-in help appears only once the adapter is on, so default help bytes stay unchanged.
 	if d, _ := adapters.Lookup(treehousepkg.Name); d.CreateAllowed && worktreeHelp[command] != "" {
 		body += "\n" + worktreeHelp[command]
+	}
+	if scopesEnabled() && scopeHelp[command] != "" {
+		body += "\n" + scopeHelp[command]
 	}
 	if command == "create" || command == "extend" {
 		body += "\n\n" + cadence

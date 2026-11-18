@@ -22,8 +22,8 @@ var leaseID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 // stateVersion is the newest state schema this binary reads and writes:
 // 3 adds live-owner protection, 4 adds idempotency keys and pending leases,
-// 5 adds lease policies and shell leases, 6 adds terminal leases.
-const stateVersion = 6
+// 5 adds lease policies and shell leases, 6 adds terminal leases, 7 adds scopes.
+const stateVersion = 7
 
 type store struct {
 	Version int `json:"version"`
@@ -216,6 +216,12 @@ func (s *store) validate() error {
 		if l.ResourceRef.Terminal != nil && s.Version < 6 {
 			return errors.New("invalid terminal record")
 		}
+		if (l.IsScope || l.Owner.Kind == ScopeKind) && s.Version < 7 || l.Owner.Kind == ScopeKind && (l.IsScope || !leaseID.MatchString(l.Owner.ID)) {
+			return errors.New("invalid scope record")
+		}
+		if l.IsScope && (l.ResourceRef.Adapter != "none" || l.ResourceRef.Pending || l.Reservation != nil || l.Policy != nil || l.ProtectLiveOwner) || (l.KeyedBy == ScopeKind) != (l.IsScope && l.Key != "") {
+			return errors.New("invalid scope record")
+		}
 		if l.DeadSince != nil && (l.Policy == nil || l.Policy.Grace == 0) {
 			return errors.New("invalid owner death record")
 		}
@@ -224,7 +230,7 @@ func (s *store) validate() error {
 				return fmt.Errorf("invalid recorded lease policy: %w", err)
 			}
 		}
-		if l.KeyedBy != "" && l.KeyedBy != "create" && l.KeyedBy != "pending" && l.KeyedBy != "adopt" || l.KeyedBy != "" && l.Key == "" {
+		if l.KeyedBy != "" && l.KeyedBy != "create" && l.KeyedBy != "pending" && l.KeyedBy != "adopt" && l.KeyedBy != ScopeKind || l.KeyedBy != "" && l.Key == "" {
 			return errors.New("invalid lease key mode")
 		}
 		if l.Key != "" {

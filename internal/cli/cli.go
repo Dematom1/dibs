@@ -162,6 +162,9 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 	if command == "adopt" || command == "orphans" {
 		return app.runInventory(ctx, command, args, out, jsonOutput)
 	}
+	if command == "scope" {
+		return app.runScope(ctx, args, out, jsonOutput)
+	}
 	if command == "reconcile" || command == "reclaim" || command == "explain" {
 		return app.runContract(ctx, command, args, out, jsonOutput)
 	}
@@ -376,7 +379,7 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 		}
 		l, done, createErr := app.leases.Create(ctx, request)
 		if createErr != nil {
-			if key != "" || pending {
+			if key != "" || pending || newOwner.Kind == "scope" {
 				return app.contractError(out, jsonOutput, command, "", createErr)
 			}
 			err = createErr
