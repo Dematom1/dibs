@@ -137,7 +137,7 @@ func TestPolicyRowForScopeOwner(t *testing.T) {
 	}
 }
 
-// With policies on, a scope records its own owner-bound row; an explicit --ttl still applies; off, nothing changes.
+// With policies on, a scope records its own owner-bound row; --ttl may only shorten it; off, nothing changes.
 func TestScopeStartRecordsItsPolicy(t *testing.T) {
 	t.Setenv("DIBS_CONFIG", "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -163,8 +163,11 @@ func TestScopeStartRecordsItsPolicy(t *testing.T) {
 	if p := explained["policy"].(map[string]any); scope["ttl"] != "30m0s" || p["row"] != "scope" || p["binding"] != "owner" || p["source"] != "lease" || explained["held_because"] != "owner_alive" {
 		t.Fatalf("scope with policies on = %v, explain %v", scope, explained)
 	}
-	if scope := start("--ttl", "8h"); scope["ttl"] != "8h0m0s" {
-		t.Fatalf("explicit --ttl 8h = %v", scope)
+	if scope := start("--ttl", "10m"); scope["ttl"] != "10m0s" {
+		t.Fatalf("explicit --ttl 10m = %v", scope)
+	}
+	if result := jsonRun(t, 2, "scope", "start", "--owner", owner, "--ttl", "8h"); !strings.Contains(result["error"].(string), `"scope" policy's ttl 30m`) {
+		t.Fatalf("scope ttl past row = %v", result)
 	}
 }
 

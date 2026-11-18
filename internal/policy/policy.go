@@ -228,6 +228,9 @@ func (p Policy) Override(ttl, idle, maxLifetime time.Duration) (Policy, error) {
 		}
 		p.Idle = idle
 	}
+	if ttl > p.TTL {
+		return Policy{}, fmt.Errorf("--ttl %s exceeds the %q policy's ttl %s", ttl, p.Row, p.TTL)
+	}
 	if ttl > 0 {
 		p.TTL = ttl
 	} else if p.MaxLifetime > 0 {
