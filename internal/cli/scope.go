@@ -91,7 +91,15 @@ func (app application) runScope(ctx context.Context, args []string, out io.Write
 		if err != nil {
 			return outputpkg.Error(out, mode, 2, err.Error(), help("scope"))
 		}
-		l, done, err := app.leases.StartScope(ctx, leasepkg.ScopeRequest{Owner: reference, TTL: ttl, Key: key})
+		var policy *policypkg.Policy
+		if leasePoliciesEnabled() {
+			var err error
+			policy, ttl, err = app.leasePolicy("none", leasepkg.ScopeKind, ttl, fs.Lookup("ttl") != nil && ttl != 8*time.Hour, 0, 0)
+			if err != nil {
+				return outputpkg.Error(out, mode, 2, err.Error(), help("scope"))
+			}
+		}
+		l, done, err := app.leases.StartScope(ctx, leasepkg.ScopeRequest{Owner: reference, TTL: ttl, Key: key, Policy: policy})
 		if err != nil {
 			return app.contractError(out, mode, "scope start", "", err)
 		}
