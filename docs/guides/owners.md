@@ -182,6 +182,7 @@ Built-in rows apply when the table is on:
 | `tmux`, `herdr`, `rex`, `treehouse-subshell` | `owner` | `8h` | - | - | - | - | - |
 | `tmux/scope`, `herdr/scope`, `rex/scope`, `treehouse-subshell/scope` | `owner` | `30m` | `30m` | - | - | `10m` | - |
 | `treehouse-worktree` | `owner` | `8h` | - | - | - | - | - |
+| `treehouse-worktree/pr` | `owner` | `8h` | `8h` | - | - | `10m` | - |
 | `treehouse-worktree/scope` | `owner` | `30m` | `30m` | - | - | `10m` | - |
 | `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - | - |
 | `none` | `time` | `8h` | - | - | - | - | - |
@@ -194,7 +195,8 @@ kind. `dibs scope end --confirm` drops the row so the ended scope no longer
 holds its members. The `/scope` rows apply to the members of a
 [scope](../leases.md#scopes): their 30-minute TTL and renewal cadence and
 10-minute grace are recorded on each lease. A worktree held by a pull request owner uses the
-`treehouse-worktree` row, owner-bound with an 8 hour TTL. Labs keep their row
+`treehouse-worktree/pr` row, owner-bound and renewed every 8 hours with a
+10-minute grace. Other worktree owners use the `treehouse-worktree` row. Labs keep their row
 whatever owns them.
 
 Job deadlines come from job classes, and a `process` row is refused. A row you

@@ -62,7 +62,8 @@ func Defaults() map[string]Policy {
 		"compose": lab,
 		"shell":   {Binding: Hybrid, TTL: 8 * time.Hour, Idle: 30 * time.Minute, Action: Destroy},
 		// A worktree slot belongs to its task while the owner lives; cleanup never discards unlanded work.
-		"treehouse-worktree": {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
+		"treehouse-worktree":    {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
+		"treehouse-worktree/pr": {Binding: Owner, TTL: 8 * time.Hour, Renew: 8 * time.Hour, Grace: 10 * time.Minute, Action: Destroy},
 	}
 	// Closing a terminal ends its shell, so a terminal lives exactly as long as its owner.
 	for _, terminal := range []string{"tmux", "herdr", "rex", "treehouse-subshell"} {

@@ -100,6 +100,16 @@ A lease owned by `scope:<id>` lives while the scope and its owner are alive. A
 scope is never forgotten while it still owns a lease. See [Scopes](docs/leases.md#scopes)
 and [lease policies](docs/guides/owners.md#lease-policies).
 
+## Reclaim when the owner exits (opt-in)
+
+Set `"lease_watcher": true` in your user `config.json`, or `DIBS_LEASE_WATCHER=1`.
+Then `create` and `adopt` start a small watcher for each lease owned by a
+`pid:` or `session:` process. It blocks on that process's exit, runs the
+ordinary confirmed sweep for that one lease, and exits; it also exits once the
+lease is released. Policy holds still apply, so an `action: report` policy only
+reports. Expiry never wakes it, so keep `dibs sweep --confirm` on a host timer
+as the backstop. Details: [docs/leases.md](docs/leases.md#lease-watcher).
+
 ## Hand a lease to a new owner (opt-in)
 
 With `"handoff": true` in your user `config.json`, or `DIBS_HANDOFF=1`, a lease

@@ -154,7 +154,7 @@ With the consumer contract on, `release` reports `preview`, `released`, or `alre
 
 `Manager.Reclaim` in `internal/lease/pending.go` is a targeted reclaim that is stricter than both `release` and the reclaim rule above, with or without live-owner protection. It acts only when the owner check returns `dead` on this machine. An `alive` owner is refused even after expiry, and `unknown` liveness is refused. It previews without `--confirm`, then calls `releaseLease`, so a job lease whose leader is already gone and reaped is released without verifying its descendants, as in invariant 4. An absent lease is success. `Manager.Explain` reports the reclaim rule's answer, the targeted reclaim's answer, and a readable reason, without acting. Both need the consumer contract. Tests: `TestReclaimRequiresProvenDeath`, `TestExplainUnexpired`.
 
-dibs has no daemon. Reclaim happens only when someone runs `dibs sweep --confirm`, `dibs release --confirm`, `dibs reclaim --confirm`, or `dibs job` (whose admission reclaims eligible job leases). The help text tells users to run sweep from a host timer.
+dibs has no daemon. Reclaim happens only when someone runs `dibs sweep --confirm`, `dibs release --confirm`, `dibs reclaim --confirm`, or `dibs job` (whose admission reclaims eligible job leases), or when an opt-in [lease watcher](#lease-watcher) sees its owner exit. The help text tells users to run sweep from a host timer.
 
 ## Live-owner protection
 
@@ -189,6 +189,23 @@ A scope groups the leases of one unit of work, such as an agent task, a coding-a
 - **A scope is forgotten only when it has no members.** `holdScope` turns a scope's reclaim verdict into the hold `scope_members` while any lease names it as owner, in `sweep`, `reclaim` and `explain`, and `release` refuses such a scope with `scope_members`.
 
 Tests: `TestScopeStartEndAndForget`, `TestEndScopeReleasesNewestFirst`, `TestScopeOwnerLiveness`, `TestSweepReleasesMembersThenTheirScope`, `TestSweepHoldsScopeWhileAMemberRemains`, `TestScopeCommands`.
+
+## Lease watcher
+
+The lease watcher is off by default. `"lease_watcher": true` in the user config or `DIBS_LEASE_WATCHER=1` turns it on; the variable overrides the config either way. With the setting absent, nothing on this page changes. [Issue 55](https://github.com/Dematom1/dibs/issues/55) records the decision.
+
+When it is on, `create` and `adopt` start one detached `dibs __watch <id>` for a lease whose owner is `pid:` or `session:` (`Watchable` in `internal/lease/watch.go`). A job reservation gets none, because `dibs job` already waits on its child. A remote `create` starts the watcher on the remote machine, under that machine's config. A failed start is not an error; the next sweep still reclaims the lease. `__watch` is internal and not part of the CLI contract.
+
+`Manager.Watch` lives exactly as long as its lease:
+
+- It holds an exclusive `flock` on `<dir>/watch/<lease-id>.lock`. The lock file remains after exit; only its `flock` indicates a live watcher. A second watcher for the same lease exits at once, and the kernel drops the lock when the watcher dies.
+- It attaches to the owner's exit first (kqueue `EVFILT_PROC` with `NOTE_EXIT` on macOS, `pidfd_open` and `poll` on Linux 5.3 or newer), then checks the owner. Attaching first means an exit right after the check still wakes it. When it cannot attach, it falls back to waking once a minute.
+- It wakes on the owner's exit or after one minute (`watchInterval`), and reads the ledger again. It exits when the lease is gone, so a released lease ends its watcher within a minute. A wake that ends early without proving death, such as an exit event for a zombie whose `ps` read fails, makes the next wait a plain one-minute sleep, so an inconclusive event never spins.
+- An event only says when to look. When the owner check returns `dead` (the process is gone, a zombie, or its start identity changed), it runs `Manager.Sweep` with `Confirm`, the lease's `ID`, and `OwnerDead`. That is the confirmed sweep for this one lease: the [verdict](consumer-contract.md#reclaim-and-sweep) still applies every hold, so a `report` policy stays shadow-only (`report_only`), a grace period starts its clock, and a busy resource is kept. `unknown` liveness never reclaims, and expiry never wakes the watcher.
+- It never retries. After one reclaim attempt it exits, and a retained lease waits for the next `dibs sweep --confirm`. Keep the host timer: it is the backstop for a dead watcher, a reboot, a grace period, and every owner the watcher cannot follow.
+- It holds no state beyond its lock file, and killing it changes no guarantee.
+
+Tests: `TestWatcherReclaimsOnOwnerExit`, `TestWatcherHonorsReportPolicy`, `TestWatcherIgnoresExpiryAndExitsOnRelease`, `TestWatcherIsSingle`, `TestWatcherThrottlesInconclusiveExit`, `TestLeaseWatcherOptIn`.
 
 ## Handoff
 
