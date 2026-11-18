@@ -108,9 +108,9 @@ owner is key_conflict, and an ended scope is scope_ended. Owner and TTL default
 as in create; a scope cannot be owned by another scope. Renew it with dibs
 extend <id>. With lease policies on, the scope row applies: owner-bound with a
 30m TTL; --ttl may only shorten it. Statuses: created, already_done.
-scope:<id> is alive while the scope exists, is unexpired or owner-bound, and its
-owner is alive; dead once the scope is absent or itself reclaimable; unknown
-while its owner is.
+scope:<id> is alive while the scope exists and its owner is alive, and either
+the scope is unexpired or, for an owner-bound scope, past its TTL; dead once the
+scope is absent or itself reclaimable; unknown while its owner is.
 end previews the leases the scope owns. --confirm expires the scope, releases
 each of them newest first with the ordinary release, and forgets the scope once
 none remain. A failed release keeps that lease and the scope (exit 1, failures);

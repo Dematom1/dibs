@@ -94,7 +94,7 @@ dibs scope show <id>
 dibs scope end <id> --confirm
 ```
 
-A lease owned by `scope:<id>` lives while the scope is unexpired and its owner is alive. See [Scopes](docs/leases.md#scopes) and [lease policies](docs/guides/owners.md#lease-policies).
+A lease owned by `scope:<id>` lives while the scope's owner is alive and the scope is unexpired, or, for an owner-bound scope, past its TTL. See [Scopes](docs/leases.md#scopes) and [lease policies](docs/guides/owners.md#lease-policies).
 
 ## Reclaim when the owner exits (opt-in)
 
