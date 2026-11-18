@@ -178,22 +178,22 @@ Built-in rows apply when the table is on:
 | Row | Binding | TTL | Renew | Max lifetime | Idle | Grace | Reclaim live owner |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `shell` | `hybrid` | `8h` | - | - | `30m` | - | `false` |
-| `shell/scope` | `hybrid` | `30m` | - | - | `30m` | `10m` | `false` |
+| `shell/scope` | `hybrid` | `30m` | `30m` | - | `30m` | `10m` | `false` |
 | `tmux`, `herdr`, `rex`, `treehouse-subshell` | `owner` | `8h` | - | - | - | - | - |
-| `tmux/scope`, `herdr/scope`, `rex/scope`, `treehouse-subshell/scope` | `owner` | `30m` | - | - | - | `10m` | - |
+| `tmux/scope`, `herdr/scope`, `rex/scope`, `treehouse-subshell/scope` | `owner` | `30m` | `30m` | - | - | `10m` | - |
 | `treehouse-worktree` | `owner` | `8h` | - | - | - | - | - |
-| `treehouse-worktree/scope` | `owner` | `30m` | - | - | - | `10m` | - |
+| `treehouse-worktree/scope` | `owner` | `30m` | `30m` | - | - | `10m` | - |
 | `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - | - |
 | `none` | `time` | `8h` | - | - | - | - | - |
-| `scope` | `owner` | `30m` | - | - | - | - | - |
+| `scope` | `owner` | `30m` | `30m` | - | - | - | - |
 
 The `scope` row is the scope lease itself: `dibs scope start` records it, so a
-scope lives while its owner does. An explicit `--ttl` may only shorten its
-30-minute TTL. This row has no `max_lifetime` and cannot be narrowed by owner
+scope lives while its owner does and is renewed every 30 minutes. An explicit
+`--ttl` may only shorten its 30-minute TTL. This row has no `max_lifetime` and cannot be narrowed by owner
 kind. `dibs scope end --confirm` drops the row so the ended scope no longer
 holds its members. The `/scope` rows apply to the members of a
-[scope](../leases.md#scopes): their 30-minute TTL and 10-minute grace are
-recorded on each lease. A worktree held by a pull request owner uses the
+[scope](../leases.md#scopes): their 30-minute TTL and renewal cadence and
+10-minute grace are recorded on each lease. A worktree held by a pull request owner uses the
 `treehouse-worktree` row, owner-bound with an 8 hour TTL. Labs keep their row
 whatever owns them.
 
