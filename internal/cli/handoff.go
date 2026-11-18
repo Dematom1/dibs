@@ -8,6 +8,7 @@ import (
 
 	leasepkg "github.com/Dematom1/dibs/internal/lease"
 	outputpkg "github.com/Dematom1/dibs/internal/output"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 	remotepkg "github.com/Dematom1/dibs/internal/remote"
 )
 
@@ -38,7 +39,14 @@ func (app application) runHandoff(ctx context.Context, args []string, out io.Wri
 	if err != nil {
 		return outputpkg.Error(out, mode, 2, err.Error(), help("handoff"))
 	}
-	r, err := app.leases.Handoff(ctx, leasepkg.HandoffRequest{ID: id, Owner: reference, Confirm: *confirm})
+	request := leasepkg.HandoffRequest{ID: id, Owner: reference, Confirm: *confirm}
+	if leasePoliciesEnabled() {
+		request.Policy = func(resource, ownerKind string) (*policypkg.Policy, error) {
+			policy, _, err := app.leasePolicy(resource, ownerKind, 0, false, 0, 0)
+			return policy, err
+		}
+	}
+	r, err := app.leases.Handoff(ctx, request)
 	if err != nil {
 		return app.contractError(out, mode, "handoff", id, err)
 	}

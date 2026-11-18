@@ -5,6 +5,7 @@ import (
 	"time"
 
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 // Handoff records a lease's last change of owner, so explain can say where it came from.
@@ -17,6 +18,7 @@ type HandoffRequest struct {
 	ID      string
 	Owner   ownerpkg.Reference
 	Confirm bool
+	Policy  func(resource, ownerKind string) (*policypkg.Policy, error)
 }
 
 type HandoffResult struct {
@@ -28,8 +30,8 @@ type HandoffResult struct {
 	Liveness ownerpkg.Liveness
 }
 
-// Handoff moves a lease to a new owner proven alive, keeping its resource,
-// expiry and recorded policy. A lease handed out of a scope is no longer its member.
+// Handoff moves a lease to a new owner proven alive, keeping its resource and
+// expiry. A lease handed out of a scope is no longer its member.
 func (m *Manager) Handoff(ctx context.Context, r HandoffRequest) (HandoffResult, error) {
 	s, host, now, err := m.open(ctx)
 	if err != nil {
@@ -69,6 +71,16 @@ func (m *Manager) Handoff(ctx context.Context, r HandoffRequest) (HandoffResult,
 	}
 	if !r.Confirm {
 		return result, nil
+	}
+	if r.Policy != nil {
+		resource := l.ResourceRef.Adapter
+		if l.IsScope {
+			resource = "scope"
+		}
+		next.Policy, err = r.Policy(resource, r.Owner.Kind)
+		if err != nil {
+			return HandoffResult{}, err
+		}
 	}
 	s.Leases[r.ID] = next
 	if err := s.Save(); err != nil {

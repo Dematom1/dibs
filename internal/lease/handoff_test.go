@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 func TestHandoffMovesALeaseOutOfItsScope(t *testing.T) {
@@ -33,11 +34,19 @@ func TestHandoffMovesALeaseOutOfItsScope(t *testing.T) {
 		t.Fatalf("state version before a handoff = %d, want 7", v)
 	}
 	for range 2 {
-		if _, err := m.Handoff(ctx, HandoffRequest{ID: worktree.ID, Owner: pr, Confirm: true}); err != nil {
+		if _, err := m.Handoff(ctx, HandoffRequest{ID: worktree.ID, Owner: pr, Confirm: true, Policy: func(resource, ownerKind string) (*policypkg.Policy, error) {
+			if resource != "none" || ownerKind != "pid" {
+				t.Fatalf("policy lookup = %s/%s", resource, ownerKind)
+			}
+			return &policypkg.Policy{Row: "none/pid", Binding: policypkg.Owner, TTL: 8 * time.Hour, Renew: 8 * time.Hour, Action: policypkg.Destroy}, nil
+		}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	l, _, _ := m.Get(ctx, worktree.ID)
+	if l.Policy == nil || l.Policy.Row != "none/pid" || l.Policy.TTL != 8*time.Hour {
+		t.Fatalf("handed-off policy = %+v", l.Policy)
+	}
 	if !sameOwner(l.Owner, pr) || l.Handoff == nil || l.Handoff.From != scopeOwner(scope.ID) || l.Handoff.At.IsZero() || !l.Expires.Equal(worktree.Expires) {
 		t.Fatalf("handed-off lease = %+v", l)
 	}
