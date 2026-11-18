@@ -8,6 +8,7 @@ import (
 	"time"
 
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 // ScopeKind names the owner kind a scope lends its members: scope:<scope lease id>.
@@ -89,6 +90,9 @@ type ScopeRequest struct {
 	TTL   time.Duration
 	// Key is the caller's own id for the work; the same key returns the same live scope.
 	Key string
+	// Policy, when set, picks a new scope's lifetime row and TTL. It runs only
+	// when no scope answers Key, so a keyed retry returns the stored scope unchanged.
+	Policy func() (*policypkg.Policy, time.Duration, error)
 }
 
 // StartScope gets or creates a scope. It reports true when Key named a live
@@ -115,6 +119,12 @@ func (m *Manager) StartScope(ctx context.Context, r ScopeRequest) (Lease, bool, 
 	if m.checkOwner(r.Owner, now) != ownerpkg.Alive {
 		return Lease{}, false, errors.New("owner became stale or unavailable while waiting; refresh the owner and retry dibs scope start")
 	}
+	var policy *policypkg.Policy
+	if r.Policy != nil {
+		if policy, r.TTL, err = r.Policy(); err != nil {
+			return Lease{}, false, err
+		}
+	}
 	description := "scope"
 	if r.Key != "" {
 		description += " " + r.Key
@@ -122,7 +132,7 @@ func (m *Manager) StartScope(ctx context.Context, r ScopeRequest) (Lease, bool, 
 	if l, err = newLease(r.Owner, r.TTL, description, nil, now); err != nil {
 		return Lease{}, false, err
 	}
-	l.IsScope, l.Key = true, r.Key
+	l.IsScope, l.Key, l.Policy = true, r.Key, policy
 	if r.Key != "" {
 		l.KeyedBy = ScopeKind
 	}
@@ -217,8 +227,13 @@ func (m *Manager) EndScope(ctx context.Context, id string, confirm bool) (ScopeE
 	}
 	r.Status = "ended"
 	// Expiring first makes every member's owner dead, so no new member can join while they are released.
-	if now.Before(scope.Expires) {
-		scope.Expires = now
+	// An owner-bound scope ignores expiry, so ending it also drops its policy and
+	// with it any grace clock, which state only accepts beside a graced policy.
+	if now.Before(scope.Expires) || scope.Policy != nil {
+		if now.Before(scope.Expires) {
+			scope.Expires = now
+		}
+		scope.Policy, scope.DeadSince = nil, nil
 		s.Leases[id] = scope
 		if err := s.Save(); err != nil {
 			s.Close()

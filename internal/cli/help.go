@@ -45,8 +45,11 @@ max_lifetime, grace, idle, reclaim_live_owner and action destroy|report. Shells
 never reclaim on TTL while their owner is alive or unknown. Idle/max_lifetime
 reclaim a live owner only with reclaim_live_owner: true on a hybrid row; an
 unknown owner is never reclaimed. The lease records its policy.
---ttl must fit max_lifetime; --idle D and --max-lifetime D may only tighten the
-row. Off, --idle and --max-lifetime exit 2 naming the setting.`
+--ttl may only shorten the row's TTL and must fit max_lifetime; --idle D and
+--max-lifetime D may only tighten the row. Off, --idle and --max-lifetime exit 2
+naming the setting. Built-in kind/scope rows renew a scope's shells, terminals
+and worktrees every 30m, with
+a 10m grace; the scope row makes a scope itself owner-bound, renewed every 30m.`
 
 var commandHelp = map[string]string{
 	"adopt": `dibs adopt <kind|k3d|compose> <name> --owner KIND:ID --ttl D
@@ -103,9 +106,11 @@ start gets or creates a scope. --key K is the caller's own id for the work: the
 same key and owner return the same live scope (status already_done), another
 owner is key_conflict, and an ended scope is scope_ended. Owner and TTL default
 as in create; a scope cannot be owned by another scope. Renew it with dibs
-extend <id>. Statuses: created, already_done.
-scope:<id> is alive while the scope exists, is unexpired and its owner is alive;
-dead once the scope is absent or itself reclaimable; unknown while its owner is.
+extend <id>. With lease policies on, the scope row applies: owner-bound with a
+30m TTL; --ttl may only shorten it. Statuses: created, already_done.
+scope:<id> is alive while the scope exists and its owner is alive, and either
+the scope is unexpired or, for an owner-bound scope, past its TTL; dead once the
+scope is absent or itself reclaimable; unknown while its owner is.
 end previews the leases the scope owns. --confirm expires the scope, releases
 each of them newest first with the ordinary release, and forgets the scope once
 none remain. A failed release keeps that lease and the scope (exit 1, failures);
@@ -125,9 +130,11 @@ Examples:
 Hand a lease to a new owner, such as a worktree passing from its task scope to
 its pull request (--owner pr:OWNER/REPO#N). Needs DIBS_HANDOFF=1 or "handoff":
 true in the user config; off, it exits 2 naming the setting.
-Preview by default. --confirm records the new owner; the resource, expiry and
-recorded policy stay. A lease handed out of a scope is no longer its member, so
-dibs scope end never releases it. dibs explain shows the last handoff (from, at).
+Preview by default. --confirm records the new owner; the resource and expiry
+stay. With lease policies on, it takes the new owner's row; with them off, the
+recorded policy stays. A lease handed out of a scope is no longer its member,
+so dibs scope end never releases it. dibs explain shows the last handoff (from,
+at).
 The new owner must be proven alive: one that cannot be bound (a gone process,
 a closed or merged PR) exits 2 as on create, and one not alive under the state
 lock, such as an ended scope, is refused (owner_not_alive). A lease already

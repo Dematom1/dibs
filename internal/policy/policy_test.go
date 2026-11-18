@@ -28,6 +28,36 @@ func TestDefaultsCoverEveryResource(t *testing.T) {
 	if p := table["treehouse-worktree"]; !p.OwnerBound() || p.TTL != 8*time.Hour || p.Idle != 0 || p.MaxLifetime != 0 {
 		t.Fatalf("worktree default = %+v", p)
 	}
+	if p, _ := Resolve(table, "treehouse-worktree", "pr"); p.Row != "treehouse-worktree/pr" || p.Binding != Owner || p.TTL != 8*time.Hour || p.Renew != 8*time.Hour || p.Grace != 10*time.Minute || p.check(p.Row) != nil {
+		t.Fatalf("PR worktree default = %+v", p)
+	}
+	if p, _ := Resolve(table, "treehouse-worktree", "pid"); p.Row != "treehouse-worktree" || p.Renew != 0 || p.Grace != 0 {
+		t.Fatalf("PID worktree default = %+v", p)
+	}
+	// A scope's shells, terminals, and worktrees renew every 30m and keep a 10m grace; labs keep their row.
+	for _, r := range []string{"shell", "tmux", "herdr", "rex", "treehouse-subshell", "treehouse-worktree"} {
+		p, _ := Resolve(table, r, "scope")
+		if base := table[r]; p.Row != r+"/scope" || p.Binding != base.Binding || p.Idle != base.Idle || p.TTL != 30*time.Minute || p.Renew != 30*time.Minute || p.Grace != 10*time.Minute || p.check(p.Row) != nil {
+			t.Fatalf("%s/scope default = %+v", r, p)
+		}
+	}
+	if p, _ := Resolve(table, "kind", "scope"); p.Row != "kind" {
+		t.Fatalf("scope-owned lab = %+v", p)
+	}
+	// The scope lease itself is owner-bound and renewed every 30m.
+	if p, _ := Resolve(table, "scope", "pid"); p.Row != "scope" || p.Binding != Owner || p.TTL != 30*time.Minute || p.Renew != 30*time.Minute || p.Grace != 0 || p.check(p.Row) != nil {
+		t.Fatalf("scope default = %+v", p)
+	}
+}
+
+func TestScopeRowIsConfigurableButNotNarrowed(t *testing.T) {
+	table, err := Table(map[string]Row{"scope": {Binding: "time", TTL: "2h"}}, kinds)
+	if err != nil || table["scope"].Binding != Time || table["scope"].TTL != 2*time.Hour {
+		t.Fatalf("configured scope row = %+v, %v", table["scope"], err)
+	}
+	if _, err := Table(map[string]Row{"scope/pid": {Binding: "owner"}}, kinds); err == nil || !strings.Contains(err.Error(), "key must be a resource kind") {
+		t.Fatalf("scope/pid accepted: %v", err)
+	}
 }
 
 func TestConfiguredRowsReplaceAndNarrow(t *testing.T) {
@@ -94,12 +124,13 @@ func TestOverrideOnlyTightens(t *testing.T) {
 		t.Fatalf("tighter max lifetime = %+v, %v", p, err)
 	}
 	if p, err := lab.Override(2*time.Hour, 0, 0); err != nil || p.TTL != 2*time.Hour {
-		t.Fatalf("ttl within max = %+v, %v", p, err)
+		t.Fatalf("ttl within row = %+v, %v", p, err)
 	}
 	if p, err := shell.Override(0, 10*time.Minute, 0); err != nil || p.Idle != 10*time.Minute {
 		t.Fatalf("tighter idle = %+v, %v", p, err)
 	}
 	for name, err := range map[string]error{
+		"ttl past row":     second(lab.Override(5*time.Hour, 0, 0)),
 		"ttl past max":     second(lab.Override(25*time.Hour, 0, 0)),
 		"looser max":       second(lab.Override(0, 0, 48*time.Hour)),
 		"looser idle":      second(shell.Override(0, time.Hour, 0)),

@@ -175,12 +175,32 @@ setting, and every lease follows its TTL as described above.
 
 Built-in rows apply when the table is on:
 
-| Row | Binding | TTL | Renew | Max lifetime | Idle | Reclaim live owner |
-| --- | --- | --- | --- | --- | --- | --- |
-| `shell` | `hybrid` | `8h` | - | - | `30m` | `false` |
-| `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - |
-| `none` | `time` | `8h` | - | - | - | - |
-| `treehouse-worktree` | `owner` | `8h` | - | - | - | - |
+| Row | Binding | TTL | Renew | Max lifetime | Idle | Grace | Reclaim live owner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `shell` | `hybrid` | `8h` | - | - | `30m` | - | `false` |
+| `shell/scope` | `hybrid` | `30m` | `30m` | - | `30m` | `10m` | `false` |
+| `tmux`, `herdr`, `rex`, `treehouse-subshell` | `owner` | `8h` | - | - | - | - | - |
+| `tmux/scope`, `herdr/scope`, `rex/scope`, `treehouse-subshell/scope` | `owner` | `30m` | `30m` | - | - | `10m` | - |
+| `treehouse-worktree` | `owner` | `8h` | - | - | - | - | - |
+| `treehouse-worktree/pr` | `owner` | `8h` | `8h` | - | - | `10m` | - |
+| `treehouse-worktree/scope` | `owner` | `30m` | `30m` | - | - | `10m` | - |
+| `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - | - |
+| `none` | `time` | `8h` | - | - | - | - | - |
+| `scope` | `owner` | `30m` | `30m` | - | - | - | - |
+
+The `scope` row is the scope lease itself: `dibs scope start` records it, so a
+scope lives while its owner does and is renewed every 30 minutes. An explicit
+`--ttl` may only shorten its 30-minute TTL. This row has no `max_lifetime`
+and cannot be narrowed by owner kind; `scope` is reserved for this row and
+cannot name a resource adapter.
+`dibs scope end --confirm` drops the row so the ended scope no longer holds its
+members. The `/scope` rows apply to the members of a
+[scope](../leases.md#scopes): their 30-minute TTL and renewal cadence and
+10-minute grace are recorded on each lease. A worktree held by a pull request
+owner uses the `treehouse-worktree/pr` row, owner-bound and renewed every 8
+hours with a 10-minute grace. A policy-enabled handoff selects the new owner's
+row; other worktree owners use the `treehouse-worktree` row. Labs keep their
+row whatever owns them.
 
 Job deadlines come from job classes, and a `process` row is refused. A row you
 configure replaces the built-in row with the same key; omitted fields are off.
@@ -205,7 +225,8 @@ An `owner` binding takes no `idle` or `max_lifetime`, a `time` binding takes no
 activity accept `idle`; today that is `shell`. Unknown fields and invalid rows
 fail `create` and `adopt` with code 2.
 
-`--ttl` on `create` or `adopt` must fit within `max_lifetime`. `--idle D` and
+`--ttl` on `create` or `adopt` may only shorten the selected row's TTL and
+must fit within `max_lifetime` when the row sets one. `--idle D` and
 `--max-lifetime D` may only tighten the row. Each lease records its effective
 policy when it is created, so later config edits, or turning the setting off,
 never loosen or tighten an existing lease. `--protect-live-owner` outranks a

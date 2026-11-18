@@ -117,6 +117,86 @@ func TestPolicyTableOnCreateAndExplain(t *testing.T) {
 	}
 }
 
+// A row keyed by the scope owner kind picks the policy for a scope's members.
+func TestPolicyRowForScopeOwner(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("DIBS_CONFIG", config)
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	if err := os.WriteFile(config, []byte(`{"policies": {"none/scope": {"binding": "owner", "ttl": "30m", "grace": "10m"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scope := jsonRun(t, 0, "scope", "start", "--owner", "pid:"+strconv.Itoa(os.Getpid()))["id"].(string)
+	record := jsonRun(t, 0, "create", "--owner", "scope:"+scope)["record"].(map[string]any)
+	if p := record["policy"].(map[string]any); p["row"] != "none/scope" || p["binding"] != "owner" || p["grace"].(float64) != 600e9 || record["ttl"].(float64) != 1800e9 {
+		t.Fatalf("scope member policy = %v", record)
+	}
+	if p := jsonRun(t, 0, "create", "--owner", "pid:"+strconv.Itoa(os.Getpid()))["record"].(map[string]any)["policy"].(map[string]any); p["row"] != "none" {
+		t.Fatalf("pid-owned lease took the scope row: %v", p)
+	}
+}
+
+// With policies on, a scope records its own owner-bound row; --ttl may only shorten it; off, nothing changes.
+func TestScopeStartRecordsItsPolicy(t *testing.T) {
+	t.Setenv("DIBS_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_CONSUMER_CONTRACT", "1")
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	start := func(args ...string) map[string]any {
+		scope := jsonRun(t, 0, append([]string{"scope", "start", "--owner", owner}, args...)...)["scope"].(map[string]any)
+		expires, err := time.Parse(time.RFC3339Nano, scope["expires"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope["ttl"] = time.Until(expires).Round(time.Minute).String()
+		return scope
+	}
+	if scope := start(); scope["ttl"] != "8h0m0s" {
+		t.Fatalf("scope with policies off = %v", scope)
+	}
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	scope := start()
+	explained := jsonRun(t, 0, "explain", scope["id"].(string))
+	if p := explained["policy"].(map[string]any); scope["ttl"] != "30m0s" || p["row"] != "scope" || p["binding"] != "owner" || p["source"] != "lease" || explained["held_because"] != "owner_alive" {
+		t.Fatalf("scope with policies on = %v, explain %v", scope, explained)
+	}
+	if scope := start("--ttl", "10m"); scope["ttl"] != "10m0s" {
+		t.Fatalf("explicit --ttl 10m = %v", scope)
+	}
+	if result := jsonRun(t, 2, "scope", "start", "--owner", owner, "--ttl", "8h"); !strings.Contains(result["error"].(string), `"scope" policy's ttl 30m`) {
+		t.Fatalf("scope ttl past row = %v", result)
+	}
+}
+
+// A keyed scope start retried after its row tightened returns the stored scope;
+// only a new scope is held to the tighter row.
+func TestKeyedScopeStartRetryAfterRowTightens(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("DIBS_CONFIG", config)
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	row := func(ttl string) {
+		if err := os.WriteFile(config, []byte(`{"policies": {"scope": {"binding": "owner", "ttl": "`+ttl+`"}}}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	row("30m")
+	first := jsonRun(t, 0, "scope", "start", "--key", "task-7", "--owner", owner, "--ttl", "20m")
+	row("10m")
+	again := jsonRun(t, 0, "scope", "start", "--key", "task-7", "--owner", owner, "--ttl", "20m")
+	if again["status"] != "already_done" || again["id"] != first["id"] {
+		t.Fatalf("keyed retry after the row tightened = %v, want scope %v", again, first["id"])
+	}
+	if refused := jsonRun(t, 2, "scope", "start", "--key", "task-8", "--owner", owner, "--ttl", "20m"); !strings.Contains(refused["error"].(string), "exceeds") {
+		t.Fatalf("new scope above the tightened row = %v", refused)
+	}
+}
+
 type policyShell struct{ destroyed *bool }
 
 func (p policyShell) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {

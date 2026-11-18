@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 func TestHandoffMovesALeaseOutOfItsScope(t *testing.T) {
@@ -33,11 +34,27 @@ func TestHandoffMovesALeaseOutOfItsScope(t *testing.T) {
 		t.Fatalf("state version before a handoff = %d, want 7", v)
 	}
 	for range 2 {
-		if _, err := m.Handoff(ctx, HandoffRequest{ID: worktree.ID, Owner: pr, Confirm: true}); err != nil {
+		if _, err := m.Handoff(ctx, HandoffRequest{ID: worktree.ID, Owner: pr, Confirm: true, Policy: func(resource, ownerKind string) (*policypkg.Policy, error) {
+			if resource != "none" || ownerKind != "pid" {
+				t.Fatalf("policy lookup = %s/%s", resource, ownerKind)
+			}
+			table, err := policypkg.Table(nil, policypkg.Kinds{Resources: []string{"none"}, Owners: []string{"pid"}})
+			if err != nil {
+				return nil, err
+			}
+			p, ok := policypkg.Resolve(table, resource, ownerKind)
+			if !ok {
+				t.Fatalf("no policy for %s/%s", resource, ownerKind)
+			}
+			return &p, nil
+		}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	l, _, _ := m.Get(ctx, worktree.ID)
+	if l.Policy == nil || l.Policy.Row != "none" || l.Policy.Binding != policypkg.Time || l.Policy.TTL != 8*time.Hour {
+		t.Fatalf("handed-off policy = %+v", l.Policy)
+	}
 	if !sameOwner(l.Owner, pr) || l.Handoff == nil || l.Handoff.From != scopeOwner(scope.ID) || l.Handoff.At.IsZero() || !l.Expires.Equal(worktree.Expires) {
 		t.Fatalf("handed-off lease = %+v", l)
 	}
@@ -118,5 +135,42 @@ func TestHandoffRecordNeedsVersionEight(t *testing.T) {
 	s.Version = 8
 	if err := s.validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Expiry is judged by the policy the handoff would save: an expired owner-bound
+// lease may pass to an owner whose row keeps it owner-bound, but not to one whose
+// row is time-bound, which sweep would reclaim at once.
+func TestHandoffChecksExpiryUnderTheNewPolicy(t *testing.T) {
+	ctx := context.Background()
+	m := scopeManager(t)
+	task, _ := liveProcess(t)
+	scope, _, err := m.StartScope(ctx, ScopeRequest{Owner: task, TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerBound := &policypkg.Policy{Row: "none/scope", Binding: policypkg.Owner, TTL: time.Millisecond, Action: policypkg.Destroy}
+	l, _, err := m.Create(ctx, CreateRequest{Owner: scopeOwner(scope.ID), TTL: time.Millisecond, Adapter: "none", Policy: ownerBound})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	next, _ := liveProcess(t)
+	timeBound := func(string, string) (*policypkg.Policy, error) {
+		return &policypkg.Policy{Row: "none", Binding: policypkg.Time, TTL: 8 * time.Hour, Action: policypkg.Destroy}, nil
+	}
+	for _, confirm := range []bool{false, true} {
+		if _, err := m.Handoff(ctx, HandoffRequest{ID: l.ID, Owner: next, Confirm: confirm, Policy: timeBound}); reason(err) != "expired" {
+			t.Fatalf("expired lease handed to a time-bound row (confirm %v): %v", confirm, err)
+		}
+	}
+	if got, _, _ := m.Get(ctx, l.ID); !sameOwner(got.Owner, scopeOwner(scope.ID)) || got.Policy.Row != "none/scope" {
+		t.Fatalf("refused handoff changed the lease: %+v", got)
+	}
+	keepsOwnerBound := func(string, string) (*policypkg.Policy, error) {
+		return &policypkg.Policy{Row: "none/pid", Binding: policypkg.Owner, TTL: time.Hour, Action: policypkg.Destroy}, nil
+	}
+	if r, err := m.Handoff(ctx, HandoffRequest{ID: l.ID, Owner: next, Confirm: true, Policy: keepsOwnerBound}); err != nil || r.Status != "handed_off" {
+		t.Fatalf("expired lease handed to an owner-bound row = %+v %v", r, err)
 	}
 }

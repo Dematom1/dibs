@@ -62,17 +62,29 @@ func Defaults() map[string]Policy {
 		"compose": lab,
 		"shell":   {Binding: Hybrid, TTL: 8 * time.Hour, Idle: 30 * time.Minute, Action: Destroy},
 		// A worktree slot belongs to its task while the owner lives; cleanup never discards unlanded work.
-		"treehouse-worktree": {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
+		"treehouse-worktree":    {Binding: Owner, TTL: 8 * time.Hour, Action: Destroy},
+		"treehouse-worktree/pr": {Binding: Owner, TTL: 8 * time.Hour, Renew: 8 * time.Hour, Grace: 10 * time.Minute, Action: Destroy},
 	}
 	// Closing a terminal ends its shell, so a terminal lives exactly as long as its owner.
 	for _, terminal := range []string{"tmux", "herdr", "rex", "treehouse-subshell"} {
 		rows[terminal] = Policy{Binding: Owner, TTL: 8 * time.Hour, Action: Destroy}
+		rows[terminal+"/scope"] = scoped(rows[terminal])
 	}
+	// The scope lease itself lives while its owner does, renewed every 30m.
+	rows["scope"] = Policy{Binding: Owner, TTL: 30 * time.Minute, Renew: 30 * time.Minute, Action: Destroy}
+	// A scope renews its members every 30m, and a grace absorbs one wrong owner probe before cleanup.
+	rows["shell/scope"] = scoped(rows["shell"])
+	rows["treehouse-worktree/scope"] = scoped(rows["treehouse-worktree"])
 	for key, p := range rows {
 		p.Row = key
 		rows[key] = p
 	}
 	return rows
+}
+
+func scoped(p Policy) Policy {
+	p.TTL, p.Renew, p.Grace = 30*time.Minute, 30*time.Minute, 10*time.Minute
+	return p
 }
 
 // Kinds names what a table may refer to: the resource adapters, the owner kinds,
@@ -113,7 +125,8 @@ func Table(rows map[string]Row, kinds Kinds) (map[string]Policy, error) {
 		if resource == "process" {
 			return nil, errors.New(`policy "process": job deadlines come from job classes, not lease policies`)
 		}
-		if !contains(kinds.Resources, resource) || (scoped && !contains(kinds.Owners, owner)) {
+		// "scope" names the scope lease itself, which no owner kind narrows.
+		if (key != "scope" && !contains(kinds.Resources, resource)) || (scoped && (resource == "scope" || !contains(kinds.Owners, owner))) {
 			return nil, fmt.Errorf("policy %q: key must be a resource kind (%s), optionally /<owner kind> (%s)", key, strings.Join(kinds.Resources, ", "), strings.Join(kinds.Owners, ", "))
 		}
 		p, err := parse(key, rows[key])
@@ -215,6 +228,9 @@ func (p Policy) Override(ttl, idle, maxLifetime time.Duration) (Policy, error) {
 			return Policy{}, fmt.Errorf("--idle %s exceeds the %q policy's %s", idle, p.Row, p.Idle)
 		}
 		p.Idle = idle
+	}
+	if ttl > p.TTL {
+		return Policy{}, fmt.Errorf("--ttl %s exceeds the %q policy's ttl %s", ttl, p.Row, p.TTL)
 	}
 	if ttl > 0 {
 		p.TTL = ttl
