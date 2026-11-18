@@ -38,6 +38,9 @@ func (app application) watch(l leasepkg.Lease) {
 
 // runWatch is the watcher process: 0 when it exits cleanly, 1 when it could not follow or reclaim the lease.
 func (app application) runWatch(ctx context.Context, id string) int {
+	if !leaseWatcherEnabled() {
+		return 0
+	}
 	if !leasepkg.ValidID(id) {
 		return 2
 	}

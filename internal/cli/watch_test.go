@@ -1,11 +1,26 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
+
+func TestRunWatchOptOutDoesNotReadState(t *testing.T) {
+	t.Setenv("DIBS_LEASE_WATCHER", "0")
+	state := filepath.Join(t.TempDir(), "missing-state")
+	t.Setenv("DIBS_STATE", state)
+	var out bytes.Buffer
+	if got := Run(context.Background(), []string{watchCommand, "invalid"}, &out, version); got != 0 {
+		t.Fatalf("watcher exited %d while opted out, want 0", got)
+	}
+	if _, err := os.Stat(state); !os.IsNotExist(err) {
+		t.Fatalf("opted-out watcher touched state: %v", err)
+	}
+}
 
 func TestLeaseWatcherOptIn(t *testing.T) {
 	var started []string
