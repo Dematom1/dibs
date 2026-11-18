@@ -281,15 +281,7 @@ dibs scope end "$scope" --confirm
 
 ### A worktree that outlives its task
 
-A task scope owns the worktree while the task works. When the pull request opens, the worktree passes to the pull request, so ending the task scope leaves it alone, and it lives until the pull request merges or closes.
-
-```sh
-export DIBS_SCOPES=1 DIBS_HANDOFF=1 DIBS_PR_OWNER=1
-dibs handoff "$worktree" --owner 'pr:acme/app#42'            # preview: from, owner, liveness
-dibs handoff "$worktree" --owner 'pr:acme/app#42' --confirm  # handed_off, or already_done on a retry
-dibs scope end "$scope" --confirm                             # no longer releases the worktree
-dibs explain "$worktree"                                      # handoff: from scope:..., at ...
-```
+For the task-scope-to-pull-request handoff flow, see [Handoff](leases.md#handoff).
 
 ### A shell script that builds its own resource
 
