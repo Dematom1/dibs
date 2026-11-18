@@ -118,12 +118,13 @@ func TestOverrideOnlyTightens(t *testing.T) {
 		t.Fatalf("tighter max lifetime = %+v, %v", p, err)
 	}
 	if p, err := lab.Override(2*time.Hour, 0, 0); err != nil || p.TTL != 2*time.Hour {
-		t.Fatalf("ttl within max = %+v, %v", p, err)
+		t.Fatalf("ttl within row = %+v, %v", p, err)
 	}
 	if p, err := shell.Override(0, 10*time.Minute, 0); err != nil || p.Idle != 10*time.Minute {
 		t.Fatalf("tighter idle = %+v, %v", p, err)
 	}
 	for name, err := range map[string]error{
+		"ttl past row":     second(lab.Override(5*time.Hour, 0, 0)),
 		"ttl past max":     second(lab.Override(25*time.Hour, 0, 0)),
 		"looser max":       second(lab.Override(0, 0, 48*time.Hour)),
 		"looser idle":      second(shell.Override(0, time.Hour, 0)),

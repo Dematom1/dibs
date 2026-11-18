@@ -45,8 +45,8 @@ max_lifetime, grace, idle, reclaim_live_owner and action destroy|report. Shells
 never reclaim on TTL while their owner is alive or unknown. Idle/max_lifetime
 reclaim a live owner only with reclaim_live_owner: true on a hybrid row; an
 unknown owner is never reclaimed. The lease records its policy.
---ttl must fit max_lifetime; --idle D and --max-lifetime D may only tighten the
-row. Off, --idle and --max-lifetime exit 2 naming the setting. Built-in
+--ttl may only shorten the row's TTL and must fit max_lifetime; --idle D and
+--max-lifetime D may only tighten the row. Off, --idle and --max-lifetime exit 2 naming the setting. Built-in
 kind/scope rows renew a scope's shells, terminals and worktrees every 30m, with
 a 10m grace; the scope row makes a scope itself owner-bound, renewed every 30m.`
 
@@ -106,7 +106,7 @@ same key and owner return the same live scope (status already_done), another
 owner is key_conflict, and an ended scope is scope_ended. Owner and TTL default
 as in create; a scope cannot be owned by another scope. Renew it with dibs
 extend <id>. With lease policies on, the scope row applies: owner-bound with a
-30m TTL unless --ttl is given. Statuses: created, already_done.
+30m TTL; --ttl may only shorten it. Statuses: created, already_done.
 scope:<id> is alive while the scope exists, is unexpired or owner-bound, and its
 owner is alive; dead once the scope is absent or itself reclaimable; unknown
 while its owner is.
