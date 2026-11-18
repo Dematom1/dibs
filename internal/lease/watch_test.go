@@ -2,14 +2,17 @@ package lease
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	ownerpkg "github.com/Dematom1/dibs/internal/owner"
 	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
@@ -137,5 +140,51 @@ func TestWatcherIsSingle(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a second watcher for a held lease kept running")
+	}
+}
+
+// An exit event whose owner check stays unknown (an unreaped zombie whose ps
+// read fails) must not spin: the watcher waits an interval before looking again.
+func TestWatcherThrottlesInconclusiveExit(t *testing.T) {
+	interval := watchInterval
+	watchInterval = 20 * time.Millisecond
+	t.Cleanup(func() { watchInterval = interval })
+	zombie := exec.Command("true")
+	if err := zombie.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { zombie.Wait() })
+	var checks atomic.Int64
+	var started atomic.Bool
+	pid := ownerpkg.Definition{Name: "pid",
+		Bind: func(context.Context, string, time.Duration, time.Time) (ownerpkg.Reference, error) {
+			return ownerpkg.Reference{}, errors.New("unused")
+		},
+		Check: func(_ context.Context, r ownerpkg.Reference, _ time.Time) ownerpkg.Observation {
+			if !started.Load() {
+				return ownerpkg.Observation{Liveness: ownerpkg.Alive, Identity: r.Identity}
+			}
+			checks.Add(1)
+			return ownerpkg.Observation{Liveness: ownerpkg.Unknown}
+		}}
+	m := New(Options{Directory: t.TempDir(), Adapters: testAdapters(), Owners: ownerpkg.NewRegistry(pid)})
+	owner := ownerpkg.Reference{Kind: "pid", ID: strconv.Itoa(zombie.Process.Pid), Identity: "start"}
+	l, _, err := m.Create(context.Background(), CreateRequest{Owner: owner, TTL: time.Hour, Adapter: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started.Store(true)
+	done := make(chan error, 1)
+	go func() { _, err := m.Watch(context.Background(), l.ID); done <- err }()
+	time.Sleep(10 * watchInterval)
+	if _, err := m.Release(context.Background(), ReleaseRequest{ID: l.ID, Confirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// At most one immediate look after each exit event, plus one per interval.
+	if n := checks.Load(); n > 30 {
+		t.Fatalf("watcher checked an unknown owner %d times in 10 intervals", n)
 	}
 }

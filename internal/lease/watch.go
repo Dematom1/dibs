@@ -53,6 +53,9 @@ func (m *Manager) Watch(ctx context.Context, id string) (SweepResult, error) {
 	if err != nil {
 		return SweepResult{}, err
 	}
+	// throttled is set after a wait ended early without proving death, such as an
+	// exit event for a zombie whose ps read failed; the next wait then sleeps the interval.
+	throttled := false
 	for ctx.Err() == nil {
 		l, ok, err := m.Get(ctx, id)
 		if err != nil {
@@ -68,8 +71,14 @@ func (m *Manager) Watch(ctx context.Context, id string) (SweepResult, error) {
 			exit.close()
 			return m.Sweep(ctx, SweepRequest{Confirm: true, ID: id, OwnerDead: true})
 		}
+		if throttled {
+			exit.close()
+			exit = exitWatch{fd: -1}
+		}
+		began := time.Now()
 		exit.wait(watchInterval)
 		exit.close()
+		throttled = time.Since(began) < watchInterval
 	}
 	return SweepResult{}, ctx.Err()
 }
