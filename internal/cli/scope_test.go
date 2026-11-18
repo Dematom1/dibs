@@ -89,4 +89,7 @@ func TestScopeCommands(t *testing.T) {
 	if again, code := scopeCLI(t, "scope", "end", id, "--confirm"); code != 0 || again["status"] != "already_done" {
 		t.Fatalf("second end = %d %v", code, again)
 	}
+	if refused, code := scopeCLI(t, "create", "--owner", "scope:"+id, "--resources", "lab"); code != 3 || refused["reason"] != "scope_ended" {
+		t.Fatalf("create against ended scope = %d %v, want refusal scope_ended", code, refused)
+	}
 }
