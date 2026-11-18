@@ -96,13 +96,9 @@ dibs scope show <id>
 dibs scope end <id> --confirm                   # releases what the scope owns, newest first
 ```
 
-A lease owned by `scope:<id>` lives while the scope is unexpired and its owner
-is alive. A scope is never forgotten while it still owns a lease. With lease
-policies on, the scope itself takes the built-in `scope` row, owner-bound and
-renewed every 30 minutes, and its shells, terminals, and worktrees take the
-built-in `<kind>/scope` rows: owner-bound, renewed every 30 minutes, with a
-10 minute grace. See [Scopes](docs/leases.md#scopes) and
-[lease policies](docs/guides/owners.md#lease-policies).
+A lease owned by `scope:<id>` lives while the scope and its owner are alive. A
+scope is never forgotten while it still owns a lease. See [Scopes](docs/leases.md#scopes)
+and [lease policies](docs/guides/owners.md#lease-policies).
 
 ## Safety
 
