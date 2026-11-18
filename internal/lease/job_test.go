@@ -611,7 +611,7 @@ func TestDestroyRejectsReusedLeaderPID(t *testing.T) {
 	}
 }
 
-func TestExpiredWaiterCleanupAfterLockContention(t *testing.T) {
+func TestAbandonedWaiterCleanupAfterLockContention(t *testing.T) {
 	dir := t.TempDir()
 	owner, err := bindOwner("pid:"+strconv.Itoa(os.Getpid()), 0, time.Now())
 	if err != nil {
@@ -622,9 +622,12 @@ func TestExpiredWaiterCleanupAfterLockContention(t *testing.T) {
 		t.Fatal(err)
 	}
 	lease.Reservation = &ReservationView{Budget: budgetpkg.Amount{Cores: 2, Memory: 2}}
+	// The test, not the wall clock, ends the wait, so the queued waiter cannot vanish before it is observed.
+	admission, abandon := context.WithCancel(context.Background())
+	defer abandon()
 	result := make(chan error, 1)
 	go func() {
-		_, err := testManager().admitJob(context.Background(), dir, lease, budgetpkg.Amount{Cores: 1, Memory: 1}, 200*time.Millisecond)
+		_, err := testManager().admitJob(admission, dir, lease, budgetpkg.Amount{Cores: 1, Memory: 1}, time.Minute)
 		result <- err
 	}()
 	awaitJob(t, func() bool {
@@ -632,20 +635,22 @@ func TestExpiredWaiterCleanupAfterLockContention(t *testing.T) {
 		jobStore(t, dir, func(s *store) { waiting = len(s.Waiters) == 1 })
 		return waiting
 	})
-	lockCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	lockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	locked, err := testManager().openStore(lockCtx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
+	abandon()
+	// Holding the lock lets the waiter cleanup contend for it after its admission context is gone.
+	time.Sleep(100 * time.Millisecond)
 	locked.Close()
-	if err := <-result; !errors.Is(err, ErrNoCapacity) {
+	if err := <-result; !errors.Is(err, context.Canceled) {
 		t.Fatalf("admission returned %v", err)
 	}
 	jobStore(t, dir, func(s *store) {
 		if len(s.Waiters) != 0 {
-			t.Fatalf("expired waiter remains after lock release: %+v", s.Waiters)
+			t.Fatalf("abandoned waiter remains after lock release: %+v", s.Waiters)
 		}
 	})
 }
