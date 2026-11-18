@@ -110,8 +110,10 @@ as the backstop. Details: [docs/leases.md](docs/leases.md#lease-watcher).
 
 With `"handoff": true` in your user `config.json`, or `DIBS_HANDOFF=1`, a lease
 can pass to a new owner, such as a worktree passing from its task scope to its
-pull request. The new owner must be alive. Only the owner changes, and a lease
-handed out of a scope is no longer released by `dibs scope end`:
+pull request. The new owner must be alive. The resource and expiry stay; with
+lease policies on, the lease takes its new owner's row, and with them off, its
+recorded policy stays. A lease handed out of a scope is no longer released by
+`dibs scope end`:
 
 ```sh
 dibs handoff <id> --owner 'pr:acme/app#42'            # preview

@@ -130,9 +130,11 @@ Examples:
 Hand a lease to a new owner, such as a worktree passing from its task scope to
 its pull request (--owner pr:OWNER/REPO#N). Needs DIBS_HANDOFF=1 or "handoff":
 true in the user config; off, it exits 2 naming the setting.
-Preview by default. --confirm records the new owner; the resource, expiry and
-recorded policy stay. A lease handed out of a scope is no longer its member, so
-dibs scope end never releases it. dibs explain shows the last handoff (from, at).
+Preview by default. --confirm records the new owner; the resource and expiry
+stay. With lease policies on, it takes the new owner's row; with them off, the
+recorded policy stays. A lease handed out of a scope is no longer its member,
+so dibs scope end never releases it. dibs explain shows the last handoff (from,
+at).
 The new owner must be proven alive: one that cannot be bound (a gone process,
 a closed or merged PR) exits 2 as on create, and one not alive under the state
 lock, such as an ended scope, is refused (owner_not_alive). A lease already

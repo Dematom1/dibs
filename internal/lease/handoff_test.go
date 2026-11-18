@@ -38,13 +38,21 @@ func TestHandoffMovesALeaseOutOfItsScope(t *testing.T) {
 			if resource != "none" || ownerKind != "pid" {
 				t.Fatalf("policy lookup = %s/%s", resource, ownerKind)
 			}
-			return &policypkg.Policy{Row: "none/pid", Binding: policypkg.Owner, TTL: 8 * time.Hour, Renew: 8 * time.Hour, Action: policypkg.Destroy}, nil
+			table, err := policypkg.Table(nil, policypkg.Kinds{Resources: []string{"none"}, Owners: []string{"pid"}})
+			if err != nil {
+				return nil, err
+			}
+			p, ok := policypkg.Resolve(table, resource, ownerKind)
+			if !ok {
+				t.Fatalf("no policy for %s/%s", resource, ownerKind)
+			}
+			return &p, nil
 		}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	l, _, _ := m.Get(ctx, worktree.ID)
-	if l.Policy == nil || l.Policy.Row != "none/pid" || l.Policy.TTL != 8*time.Hour {
+	if l.Policy == nil || l.Policy.Row != "none" || l.Policy.Binding != policypkg.Time || l.Policy.TTL != 8*time.Hour {
 		t.Fatalf("handed-off policy = %+v", l.Policy)
 	}
 	if !sameOwner(l.Owner, pr) || l.Handoff == nil || l.Handoff.From != scopeOwner(scope.ID) || l.Handoff.At.IsZero() || !l.Expires.Equal(worktree.Expires) {
