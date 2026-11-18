@@ -67,12 +67,21 @@ func Defaults() map[string]Policy {
 	// Closing a terminal ends its shell, so a terminal lives exactly as long as its owner.
 	for _, terminal := range []string{"tmux", "herdr", "rex", "treehouse-subshell"} {
 		rows[terminal] = Policy{Binding: Owner, TTL: 8 * time.Hour, Action: Destroy}
+		rows[terminal+"/scope"] = scoped(rows[terminal])
 	}
+	// A scope renews its members every 30m, and a grace absorbs one wrong owner probe before cleanup.
+	rows["shell/scope"] = scoped(rows["shell"])
+	rows["treehouse-worktree/scope"] = scoped(rows["treehouse-worktree"])
 	for key, p := range rows {
 		p.Row = key
 		rows[key] = p
 	}
 	return rows
+}
+
+func scoped(p Policy) Policy {
+	p.TTL, p.Grace = 30*time.Minute, 10*time.Minute
+	return p
 }
 
 // Kinds names what a table may refer to: the resource adapters, the owner kinds,

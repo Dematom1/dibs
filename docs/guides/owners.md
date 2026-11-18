@@ -175,12 +175,23 @@ setting, and every lease follows its TTL as described above.
 
 Built-in rows apply when the table is on:
 
-| Row | Binding | TTL | Renew | Max lifetime | Idle | Reclaim live owner |
-| --- | --- | --- | --- | --- | --- | --- |
-| `shell` | `hybrid` | `8h` | - | - | `30m` | `false` |
-| `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - |
-| `none` | `time` | `8h` | - | - | - | - |
-| `treehouse-worktree` | `owner` | `8h` | - | - | - | - |
+| Row | Binding | TTL | Renew | Max lifetime | Idle | Grace | Reclaim live owner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `shell` | `hybrid` | `8h` | - | - | `30m` | - | `false` |
+| `shell/scope` | `hybrid` | `30m` | - | - | `30m` | `10m` | `false` |
+| `tmux`, `herdr`, `rex`, `treehouse-subshell` | `owner` | `8h` | - | - | - | - | - |
+| `tmux/scope`, `herdr/scope`, `rex/scope`, `treehouse-subshell/scope` | `owner` | `30m` | - | - | - | `10m` | - |
+| `treehouse-worktree` | `owner` | `8h` | - | - | - | - | - |
+| `treehouse-worktree/scope` | `owner` | `30m` | - | - | - | `10m` | - |
+| `kind`, `k3d`, `compose` | `time` | `4h` | `2h` | `24h` | - | - | - |
+| `none` | `time` | `8h` | - | - | - | - | - |
+
+The `/scope` rows apply to the members of a [scope](../leases.md#scopes): on an
+owner-bound row the TTL is the renewal cadence, so a scope's shells, terminals,
+and worktrees are renewed every 30 minutes, and the 10 minute grace absorbs one
+wrong owner probe before a sweep acts. A worktree held by a pull request owner
+uses the `treehouse-worktree` row, owner-bound with an 8 hour cadence. Labs keep
+their row whatever owns them.
 
 Job deadlines come from job classes, and a `process` row is refused. A row you
 configure replaces the built-in row with the same key; omitted fields are off.

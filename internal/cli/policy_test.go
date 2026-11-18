@@ -117,6 +117,26 @@ func TestPolicyTableOnCreateAndExplain(t *testing.T) {
 	}
 }
 
+// A row keyed by the scope owner kind picks the policy for a scope's members.
+func TestPolicyRowForScopeOwner(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("DIBS_CONFIG", config)
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	if err := os.WriteFile(config, []byte(`{"policies": {"none/scope": {"binding": "owner", "ttl": "30m", "grace": "10m"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scope := jsonRun(t, 0, "scope", "start", "--owner", "pid:"+strconv.Itoa(os.Getpid()))["id"].(string)
+	record := jsonRun(t, 0, "create", "--owner", "scope:"+scope)["record"].(map[string]any)
+	if p := record["policy"].(map[string]any); p["row"] != "none/scope" || p["binding"] != "owner" || p["grace"].(float64) != 600e9 || record["ttl"].(float64) != 1800e9 {
+		t.Fatalf("scope member policy = %v", record)
+	}
+	if p := jsonRun(t, 0, "create", "--owner", "pid:"+strconv.Itoa(os.Getpid()))["record"].(map[string]any)["policy"].(map[string]any); p["row"] != "none" {
+		t.Fatalf("pid-owned lease took the scope row: %v", p)
+	}
+}
+
 type policyShell struct{ destroyed *bool }
 
 func (p policyShell) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {

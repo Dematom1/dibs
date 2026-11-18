@@ -46,7 +46,9 @@ never reclaim on TTL while their owner is alive or unknown. Idle/max_lifetime
 reclaim a live owner only with reclaim_live_owner: true on a hybrid row; an
 unknown owner is never reclaimed. The lease records its policy.
 --ttl must fit max_lifetime; --idle D and --max-lifetime D may only tighten the
-row. Off, --idle and --max-lifetime exit 2 naming the setting.`
+row. Off, --idle and --max-lifetime exit 2 naming the setting. Built-in
+kind/scope rows renew a scope's shells, terminals and worktrees every 30m, with
+a 10m grace.`
 
 var commandHelp = map[string]string{
 	"adopt": `dibs adopt <kind|k3d|compose> <name> --owner KIND:ID --ttl D
