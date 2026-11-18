@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/Dematom1/dibs/compare/v0.2.4...v0.2.5) (2026-11-17)
+
+
+### Features
+
+* **lease:** manage agent terminal leases ([#52](https://github.com/Dematom1/dibs/issues/52)) ([ee43cf2](https://github.com/Dematom1/dibs/commit/ee43cf23dd7882eda645a52bae54272686e9db8d))
+
 ## [0.2.4](https://github.com/Dematom1/dibs/compare/v0.2.3...v0.2.4) (2026-11-16)
 
 
