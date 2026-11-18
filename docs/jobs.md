@@ -42,7 +42,7 @@ Test: `TestJobBudgetAndConfig`.
 6. On admission, removes the waiter, sets `Created = now` and `Expires = now + timeout`, and saves the lease.
 7. Otherwise saves any queue change, closes the store, and polls again after 50 ms. The lock is not held during the sleep.
 
-When the wait ends without admission, `ErrNoCapacity` maps to exit 75 (`EX_TEMPFAIL`), and no child starts. A deferred cleanup removes this job's waiter. If that cleanup fails, the waiter expires on its own. Test: `TestExpiredWaiterCleanupAfterLockContention`.
+When the wait ends without admission, `ErrNoCapacity` maps to exit 75 (`EX_TEMPFAIL`), and no child starts. A deferred cleanup removes this job's waiter. If that cleanup fails, the waiter expires on its own. Test: `TestAbandonedWaiterCleanupAfterLockContention`.
 
 The queue is FIFO across classes, with no backfill. A smaller request never overtakes an earlier, larger waiter. Queue order is the order in which requests take the state lock. Test: `TestJobsRealProcesses` subtest "FIFO no backfill wait code and ps".
 
