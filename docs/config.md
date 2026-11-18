@@ -67,7 +67,7 @@ dibs uses the XDG path on macOS too. The legacy fallback never moves or rewrites
 | `handoff` | boolean | Turns on `dibs handoff`. See [Handoff](leases.md#handoff) |
 | `lease_watcher` | boolean | Starts a watcher with each `pid:` or `session:` lease that reclaims it when its owner exits. See [Lease watcher](leases.md#lease-watcher) |
 | `lease_policies` | boolean | Turns on the lease policy table, overridden either way by `DIBS_LEASE_POLICIES`. See [lease policies](guides/owners.md#lease-policies) |
-| `policies.<kind>` or `policies.<kind>/<owner kind>` | object | Replaces the built-in policy row with that key. Owner kinds are `pid`, `session`, `heartbeat`, `pr`, `exec`, and `scope`. The bare key `scope` is the row for the scope lease itself. See [lease policies](guides/owners.md#lease-policies) |
+| `policies.<kind>` or `policies.<kind>/<owner kind>` | object | Replaces the built-in policy row with that key. Owner kinds are `pid`, `session`, `heartbeat`, `pr`, `exec`, and `scope`. The reserved bare key `scope` configures the scope lease itself and cannot be narrowed by owner kind. See [lease policies](guides/owners.md#lease-policies) |
 
 `Config.Available` returns the usable budget: `cores - room_cores` cores and `memory - room_memory` bytes. It refuses a budget with non-positive totals, or owner room that is not below the totals.
 

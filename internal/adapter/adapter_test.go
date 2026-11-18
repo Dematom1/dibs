@@ -229,6 +229,15 @@ func (a composeAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error 
 	return composepkg.New(a.run).Adapter.Destroy(ctx, l)
 }
 
+func TestScopeIsReservedForPolicyRow(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered != `resource adapter name "scope" is reserved for the scope policy row` {
+			t.Fatalf("NewRegistry panic = %v", recovered)
+		}
+	}()
+	adapterpkg.NewRegistry(adapterpkg.Definition{Name: "scope"})
+}
+
 func TestRunCommandInIgnoresCallerGitLocation(t *testing.T) {
 	repo := t.TempDir()
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {

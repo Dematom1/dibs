@@ -12,6 +12,17 @@ import (
 	remotepkg "github.com/Dematom1/dibs/internal/remote"
 )
 
+// handoffPolicy re-selects a handed-off lease's row for its new owner kind; nil keeps the recorded policy.
+func (app application) handoffPolicy() func(resource, ownerKind string) (*policypkg.Policy, error) {
+	if !leasePoliciesEnabled() {
+		return nil
+	}
+	return func(resource, ownerKind string) (*policypkg.Policy, error) {
+		p, _, err := app.leasePolicy(resource, ownerKind, 0, false, 0, 0)
+		return p, err
+	}
+}
+
 // runHandoff serves dibs handoff; its output follows consumer contract 1.
 func (app application) runHandoff(ctx context.Context, args []string, out io.Writer, mode outputpkg.Mode) int {
 	fs := flag.NewFlagSet("handoff", flag.ContinueOnError)
@@ -39,13 +50,7 @@ func (app application) runHandoff(ctx context.Context, args []string, out io.Wri
 	if err != nil {
 		return outputpkg.Error(out, mode, 2, err.Error(), help("handoff"))
 	}
-	request := leasepkg.HandoffRequest{ID: id, Owner: reference, Confirm: *confirm}
-	if leasePoliciesEnabled() {
-		request.Policy = func(resource, ownerKind string) (*policypkg.Policy, error) {
-			policy, _, err := app.leasePolicy(resource, ownerKind, 0, false, 0, 0)
-			return policy, err
-		}
-	}
+	request := leasepkg.HandoffRequest{ID: id, Owner: reference, Confirm: *confirm, Policy: app.handoffPolicy()}
 	r, err := app.leases.Handoff(ctx, request)
 	if err != nil {
 		return app.contractError(out, mode, "handoff", id, err)

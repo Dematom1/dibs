@@ -6,7 +6,32 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
+
+func TestHandoffReselectsTheNewOwnersRow(t *testing.T) {
+	t.Setenv("DIBS_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	app := testApplication()
+	t.Setenv("DIBS_LEASE_POLICIES", "0")
+	if app.handoffPolicy() != nil {
+		t.Fatal("policies off re-selected a row at handoff")
+	}
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	resolve := app.handoffPolicy()
+	for owner, want := range map[string]policypkg.Policy{
+		"scope": {Row: "treehouse-worktree/scope", TTL: 30 * time.Minute, Renew: 30 * time.Minute, Grace: 10 * time.Minute},
+		"pr":    {Row: "treehouse-worktree/pr", TTL: 8 * time.Hour, Renew: 8 * time.Hour, Grace: 10 * time.Minute},
+		"pid":   {Row: "treehouse-worktree", TTL: 8 * time.Hour},
+	} {
+		p, err := resolve("treehouse-worktree", owner)
+		if err != nil || p.Row != want.Row || p.Binding != policypkg.Owner || p.TTL != want.TTL || p.Renew != want.Renew || p.Grace != want.Grace {
+			t.Fatalf("worktree handed to %s = %+v, %v; want %+v", owner, p, err, want)
+		}
+	}
+}
 
 func TestHandoffCommand(t *testing.T) {
 	config := filepath.Join(t.TempDir(), "config.json")

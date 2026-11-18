@@ -161,6 +161,9 @@ type Registry struct{ definitions []Definition }
 func NewRegistry(definitions ...Definition) Registry {
 	seen := map[string]bool{}
 	for _, d := range definitions {
+		if d.Name == "scope" {
+			panic(`resource adapter name "scope" is reserved for the scope policy row`)
+		}
 		incompleteTerminal := d.Terminal != nil && (d.Terminal.ResolveServer == nil || d.Terminal.ValidID == nil || d.Terminal.Describe == nil || d.Discover == nil || d.CreateAllowed)
 		if d.Name == "" || seen[d.Name] || d.Adapter == nil || d.Prepare == nil || d.Validate == nil || d.Env == nil || incompleteTerminal {
 			panic("incomplete or duplicate resource adapter")
