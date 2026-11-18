@@ -37,6 +37,8 @@ type Lease struct {
 	Releasing *time.Time `json:"releasing,omitempty"`
 	// IsScope marks a scope: a lease with no external resource that owns its members through scope:<id>.
 	IsScope bool `json:"is_scope,omitempty"`
+	// Handoff records the last dibs handoff; nil when the lease kept its first owner.
+	Handoff *Handoff `json:"handoff,omitempty"`
 }
 
 func newLease(owner ownerpkg.Reference, ttl time.Duration, resources string, labels map[string]string, now time.Time) (Lease, error) {

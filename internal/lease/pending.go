@@ -71,13 +71,16 @@ func sameOwner(a, b ownerpkg.Reference) bool {
 // for lease policies and shells, which a version 4 reader would reclaim at expiry,
 // 6 for terminals, which a version 5 reader would not recognize, and 7 for
 // scopes and their members, which a version 6 reader would release or reclaim
-// without regard to the scope.
+// without regard to the scope, and 8 for handoff records, which a version 7
+// reader would drop on save.
 func (s *store) settleVersion() {
 	version := 2
 	for _, l := range s.Leases {
 		switch {
+		case l.Handoff != nil:
+			version = 8
 		case l.IsScope || l.Owner.Kind == ScopeKind:
-			version = 7
+			version = max(version, 7)
 		case l.ResourceRef.Terminal != nil:
 			version = max(version, 6)
 		case l.Policy != nil || l.DeadSince != nil || l.ResourceRef.Process != nil:

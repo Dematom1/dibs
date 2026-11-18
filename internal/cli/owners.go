@@ -54,6 +54,11 @@ const scopesOff = `scopes are off; set DIBS_SCOPES=1 or "scopes": true in the us
 
 func scopesEnabled() bool { return optedIn("DIBS_SCOPES", configpkg.Scopes) }
 
+// handoffOff names the settings that turn on dibs handoff.
+const handoffOff = `handoff is off; set DIBS_HANDOFF=1 or "handoff": true in the user config`
+
+func handoffEnabled() bool { return optedIn("DIBS_HANDOFF", configpkg.Handoff) }
+
 // optedIn lets the DIBS_* variable override the user config either way; it has no BERTH_* alias.
 func optedIn(env string, config func() bool) bool {
 	if value, ok := os.LookupEnv(env); ok {

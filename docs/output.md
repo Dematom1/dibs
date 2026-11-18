@@ -48,9 +48,10 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 | `create` or `adopt` with `--key` or `--pending` | The keys above, plus `contract` and `status` |
 | `reconcile` | `contract`, `count`, `help`, `results`, `status`. Each result has `id`, `status`, `resource_adapter`, `resource_name`, `matches`, and `conflicts`. |
 | `reclaim` | `contract`, `help`, `id`, `status`. Adds `liveness` unless the lease was already gone. |
-| `explain` | `contract`, `expired`, `help`, `lease`, `liveness`, `reclaim_would_reclaim`, `record`, `status`, `sweep_would_reclaim`, `this_machine`, `why` |
+| `explain` | `contract`, `expired`, `help`, `lease`, `liveness`, `reclaim_would_reclaim`, `record`, `status`, `sweep_would_reclaim`, `this_machine`, `why`. A lease that changed owner adds `handoff` with `from` and `at`. |
 | `scope start` | `contract`, `help`, `id`, `scope` (a lease row), `status` |
 | `scope show` | `contract`, `count`, `help`, `id`, `leases` (one row per lease the scope owns), `record`, `records`, `scope`, `status` |
+| `handoff` | `contract`, `from` (the current owner), `help`, `id`, `liveness` (the new owner's), `owner` (the new owner), `status`. A lease leaving a scope adds `left_scope`, the scope's ID. |
 | `scope end` | `contract`, `help`, `id`, `status`. A preview adds `release`, the IDs it would release, newest first. With `--confirm` it adds `released`, `retained`, and `forgotten`; when a lease is retained it also adds `code`, `error`, `exit_code` (1), and `failures`. |
 | A consumer contract refusal | `code`, `contract`, `error`, `exit_code` (3), `help`, `reason`, and `id` when the command names a lease (absent on a refused `create`) |
 | `sweep` | `confirmed`, `eligible`, `reclaimed`, `unknown`. Adds `help` when not confirmed. Adds `code`, `error`, `exit_code`, and `failures` on failure. |

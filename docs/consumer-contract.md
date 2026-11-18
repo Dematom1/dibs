@@ -12,7 +12,7 @@ The contract is off by default. Turn it on per machine with `"consumer_contract"
 
 While it is off, `create --pending`, `--name`, `--key`, `adopt --pending`, `adopt --key`, `reconcile`, `reclaim`, and `explain` fail with exit 2 before any state access, and the error names the setting. `extend` and `release` keep their original output and exit codes, so every existing caller sees exactly what it saw before. Turning the setting off later does not remove keys or pending leases already recorded; `release` and `sweep` still finish them.
 
-`dibs scope` has its own opt-in, `"scopes": true` or `DIBS_SCOPES=1`, and always answers in contract 1 form, whether or not this setting is on. See [Scopes](leases.md#scopes).
+`dibs scope` has its own opt-in, `"scopes": true` or `DIBS_SCOPES=1`, and always answers in contract 1 form, whether or not this setting is on. See [Scopes](leases.md#scopes). `dibs handoff` works the same way with `"handoff": true` or `DIBS_HANDOFF=1`. See [Handoff](leases.md#handoff).
 
 ## Verbs
 
@@ -32,6 +32,7 @@ While it is off, `create --pending`, `--name`, `--key`, `adopt --pending`, `adop
 | group | `dibs scope start --key K --owner O --ttl D`, then `--owner scope:ID` on `create` or `adopt` | one unit of work holds several leases |
 | end a group | `dibs scope end ID [--confirm]` | the unit of work is done; omit `--confirm` to preview |
 | show a group | `dibs scope show ID` or `dibs scope show --key K` | you need the scope and every lease it owns |
+| hand off | `dibs handoff ID --owner O [--confirm]` | a lease must outlive its owner, such as a worktree passing from its task scope to its pull request; omit `--confirm` to preview |
 
 `T` is an adapter name. `create --pending`, `adopt`, and `reconcile` work with every adapter that supports adoption: `kind`, `k3d`, and `compose` today. `create` without `--pending` also supports `none`, which records a metadata-only lease.
 
@@ -107,6 +108,7 @@ Exit 3 means that dibs changed no lease and touched no resource. Opening the led
 | `scope start` | `created`, `already_done` |
 | `scope end` | `preview`, `ended`, `already_done` |
 | `scope show` | `shown` |
+| `handoff` | `preview`, `handed_off`, `already_done` |
 
 `already_done` means that the call had already happened and dibs did nothing this time. The response still describes the lease, so a retry gets the same answer as the first call.
 
@@ -126,18 +128,20 @@ Exit 3 means that dibs changed no lease and touched no resource. Opening the led
 | `ambiguous` | More than one resource matches a pending lease | Register the right one with `dibs adopt T HANDLE --pending ID` |
 | `owner_alive` | `reclaim` found the owner alive, even if the lease expired | Leave it, or release it as its owner |
 | `owner_unknown` | `reclaim` could not verify the owner, or `extend` could not verify a live owner | Retry later; the lease is kept |
-| `expired` | `extend` found an unprotected lease expired while its owner is alive | Release it and acquire again; do not create a second lease for a resource still covered |
+| `expired` | `extend` found an unprotected lease expired while its owner is alive, or `handoff` named a time-bound lease past its expiry | Release it and acquire again; do not create a second lease for a resource still covered |
 | `owner_dead` | `extend` found the owner dead | Run `dibs reclaim ID --confirm` or `dibs sweep --confirm` |
 | `job_deadline` | A job reservation cannot be extended | Start a new `dibs job` with `--timeout` |
 | `max_lifetime` | `extend` reached the lease policy's maximum lifetime | Release it and acquire again |
 | `grace` | `reclaim` found the owner dead, but the lease policy's grace period has not passed | Retry after the time `dibs explain ID` shows |
 | `resource_busy` | `reclaim` found the resource doing work, such as a shell with a foreground job | Wait for the work to finish; a busy resource is never reclaimed |
-| `cleanup_in_progress` | `extend` found a lease whose cleanup started outside the state lock (today only `treehouse-worktree`) and has not finished | Run `dibs release ID --confirm` to finish it; the lease is retained until cleanup succeeds |
+| `cleanup_in_progress` | `extend` or `handoff` found a lease whose cleanup started outside the state lock (today only `treehouse-worktree`) and has not finished | Run `dibs release ID --confirm` to finish it; the lease is retained until cleanup succeeds |
 | `unlanded_work` | `release` or `reclaim` found a `treehouse-worktree` slot holding uncommitted or unpushed work, or running processes; the response lists them under `blockers` | Land or stop what `blockers` lists, then retry; nothing was cleaned up |
-
 | `scope_members` | `release` or `reclaim` named a scope that still owns leases | Run `dibs scope end ID --confirm`; it releases them and then forgets the scope |
 | `scope_ended` | `scope start --key` named a scope that has ended, or `create` or `adopt` named a scope owner that is not alive | Start a new scope, with a new key while the ended scope is still on the books |
 | `not_scope` | `scope end` named a lease that is not a scope | Use `dibs release ID` |
+| `owner_not_alive` | `handoff` named a new owner that is dead or unknown under the state lock, such as an ended scope. An owner that cannot be bound at all, such as a merged pull request, exits 2 as on `create` | Hand the lease to an owner that is alive now |
+| `job_lease` | `handoff` named a job reservation, which ends with its job | Start a new lease for the new owner |
+| `scope_nested` | `handoff` named a scope and a `scope:` owner; scopes never nest | Hand the scope to a `pid`, `session`, `heartbeat`, `exec` or `pr` owner |
 
 `reclaim` also refuses with `resource_unknown` when the resource's activity cannot be read.
 
@@ -213,6 +217,7 @@ With lease policies on (see [lease policies](guides/owners.md#lease-policies)), 
 | Periodic backstop | `dibs sweep --confirm` from a host timer |
 | Audit | `dibs list --owner O`, `dibs explain ID` |
 | One unit of work holds several leases | `dibs scope start --key K --owner O`, `--owner scope:ID` on each acquire, `dibs scope end ID --confirm` when it is done |
+| A lease must outlive the work that took it | `dibs handoff ID --owner O --confirm` before the old owner ends |
 
 Choose an owner whose liveness is the work's own. Use the worker process (`pid:` or `session:`) or a heartbeat file that the worker itself touches. If the owner is the process that starts the work, or a supervisor that touches the heartbeat on the worker's behalf, then that process exiting reads as the work dying, and its leases become reclaimable.
 
@@ -272,6 +277,18 @@ dibs adopt tmux %3 --owner "scope:$scope" --ttl 8h
 dibs scope show "$scope"
 # When the work is done:
 dibs scope end "$scope" --confirm
+```
+
+### A worktree that outlives its task
+
+A task scope owns the worktree while the task works. When the pull request opens, the worktree passes to the pull request, so ending the task scope leaves it alone, and it lives until the pull request merges or closes.
+
+```sh
+export DIBS_SCOPES=1 DIBS_HANDOFF=1 DIBS_PR_OWNER=1
+dibs handoff "$worktree" --owner 'pr:acme/app#42'            # preview: from, owner, liveness
+dibs handoff "$worktree" --owner 'pr:acme/app#42' --confirm  # handed_off, or already_done on a retry
+dibs scope end "$scope" --confirm                             # no longer releases the worktree
+dibs explain "$worktree"                                      # handoff: from scope:..., at ...
 ```
 
 ### A shell script that builds its own resource

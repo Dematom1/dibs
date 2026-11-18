@@ -100,6 +100,21 @@ A lease owned by `scope:<id>` lives while the scope is unexpired and its owner
 is alive. A scope is never forgotten while it still owns a lease. See
 [Scopes](docs/leases.md#scopes).
 
+## Hand a lease to a new owner (opt-in)
+
+With `"handoff": true` in your user `config.json`, or `DIBS_HANDOFF=1`, a lease
+can pass to a new owner, such as a worktree passing from its task scope to its
+pull request. The new owner must be alive. Only the owner changes, and a lease
+handed out of a scope is no longer released by `dibs scope end`:
+
+```sh
+dibs handoff <id> --owner 'pr:acme/app#42'            # preview
+dibs handoff <id> --owner 'pr:acme/app#42' --confirm  # retries report already_done
+```
+
+`dibs explain <id>` shows the last handoff. See
+[Handoff](docs/leases.md#handoff).
+
 ## Safety
 
 - dibs acts only on resources that a lease covers. Unleased resources are never

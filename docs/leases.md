@@ -18,6 +18,7 @@ Source: `internal/lease/lease.go` (record, reclaim, extend, release, sweep), `in
 - `Reservation` (JSON `job`) is set only for job reservations, which use adapter `process`. See [Jobs](jobs.md).
 - `ProtectLiveOwner` (JSON `protect_live_owner`) is set by `--protect-live-owner` on `create` or `adopt`. See [Live-owner protection](#live-owner-protection). Job reservations never carry it.
 - `IsScope` (JSON `is_scope`) marks a scope, set only by `dibs scope start`. See [Scopes](#scopes).
+- `Handoff` (JSON `handoff`) records the last owner change: `from`, the previous owner, and `at`, when it changed. Only `dibs handoff --confirm` sets it. See [Handoff](#handoff).
 
 The on-disk layout of these fields is in [State](state.md#format-version-2).
 
@@ -187,6 +188,22 @@ A scope groups the leases of one unit of work, such as an agent task, a coding-a
 - **A scope is forgotten only when it has no members.** `holdScope` turns a scope's reclaim verdict into the hold `scope_members` while any lease names it as owner, in `sweep`, `reclaim` and `explain`, and `release` refuses such a scope with `scope_members`.
 
 Tests: `TestScopeStartEndAndForget`, `TestEndScopeReleasesNewestFirst`, `TestScopeOwnerLiveness`, `TestSweepReleasesMembersThenTheirScope`, `TestSweepHoldsScopeWhileAMemberRemains`, `TestScopeCommands`.
+
+## Handoff
+
+`dibs handoff <id> --owner KIND:ID` hands a lease to a new owner. The case it serves is a worktree that passes from its task scope to its pull request (`--owner pr:OWNER/REPO#N`), so the worktree outlives the task while the pull request is open. It needs the `handoff` user config opt-in or `DIBS_HANDOFF=1`; without it, `dibs handoff` exits 2 naming the setting, and nothing else on this page changes. The code is `internal/lease/handoff.go` and `internal/cli/handoff.go`.
+
+- **Preview first.** Without `--confirm`, `Manager.Handoff` makes every check and reports the decision, and changes nothing. With `--confirm` it saves the new owner under the state lock.
+- **Only the owner changes.** The resource, `Expires`, the TTL, protection and the recorded policy stay as they were. A recorded owner-death stamp is cleared, because it described the old owner. Labels an adapter wrote on the resource at create are not rewritten; the ledger is the authority.
+- **The new owner must be proven alive.** `--owner` binds as on `create`, so a malformed selector, a process that is gone, or a closed or merged pull request exits 2. Under the state lock the bound owner is checked again through `Manager.liveness`, so `scope:<id>` resolves against the ledger. An owner that is dead or unknown there, such as an ended scope, is refused with reason `owner_not_alive`. The old owner's liveness does not matter, so a lease whose owner died can still be handed to a live one.
+- **A lease handed out of a scope leaves it.** Scope membership is the `scope:<id>` owner, so after a handoff to any other owner `dibs scope end` no longer lists or releases the lease, and the scope can be forgotten while the lease lives on.
+- **Retries converge.** A lease that already has the requested owner reports `already_done` and is not written again.
+- **What is refused.** Besides `owner_not_alive`: `not_found`, `wrong_machine`, `cleanup_in_progress` while a release is under way, `job_lease` for a job reservation, `scope_nested` for a scope handed to a scope, and `expired` for a time-bound lease past its expiry, which sweep would reclaim whatever its owner. Renew such a lease with `dibs extend` first.
+- **`explain` shows it.** `Handoff` is recorded on the lease, and `dibs explain <id>` prints it as `handoff` with `from` and `at`. Only the last handoff is kept.
+
+A keyed lease keeps its key. A retry of the original `create --key` with the old owner is then a different request and returns `key_conflict`. A scope can be handed to a new owner too, so a restarted caller with a new process can keep it.
+
+Tests: `TestHandoffMovesALeaseOutOfItsScope`, `TestHandoffRefusalsChangeNothing`, `TestHandoffRecordNeedsVersionEight`, `TestHandoffCommand`.
 
 ## Renewal cadence
 
