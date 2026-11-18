@@ -50,7 +50,7 @@ unknown owner is never reclaimed. The lease records its policy.
 --ttl must fit max_lifetime; --idle D and --max-lifetime D may only tighten the
 row. Off, --idle and --max-lifetime exit 2 naming the setting. Built-in
 kind/scope rows renew a scope's shells, terminals and worktrees every 30m, with
-a 10m grace.
+a 10m grace; the scope row makes a scope itself owner-bound, renewed every 30m.
 Output: --axi for agents, --json for scripts (mutually exclusive).
 Default: human on terminals; AXI for pipes or DIBS_AXI=1.
 Lease commands: --full restores complete AXI records/text; JSON is always complete.

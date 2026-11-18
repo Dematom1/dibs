@@ -91,13 +91,11 @@ func (app application) runScope(ctx context.Context, args []string, out io.Write
 		if err != nil {
 			return outputpkg.Error(out, mode, 2, err.Error(), help("scope"))
 		}
-		var policy *policypkg.Policy
-		if leasePoliciesEnabled() {
-			var err error
-			policy, ttl, err = app.leasePolicy("none", leasepkg.ScopeKind, ttl, fs.Lookup("ttl") != nil && ttl != 8*time.Hour, 0, 0)
-			if err != nil {
-				return outputpkg.Error(out, mode, 2, err.Error(), help("scope"))
-			}
+		explicitTTL := false
+		fs.Visit(func(f *flag.Flag) { explicitTTL = explicitTTL || f.Name == "ttl" })
+		policy, ttl, err := app.leasePolicy(leasepkg.ScopeKind, reference.Kind, ttl, explicitTTL, 0, 0)
+		if err != nil {
+			return outputpkg.Error(out, mode, 2, err.Error(), help("scope"))
 		}
 		l, done, err := app.leases.StartScope(ctx, leasepkg.ScopeRequest{Owner: reference, TTL: ttl, Key: key, Policy: policy})
 		if err != nil {

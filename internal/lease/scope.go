@@ -8,6 +8,7 @@ import (
 	"time"
 
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
 
 // ScopeKind names the owner kind a scope lends its members: scope:<scope lease id>.
@@ -89,6 +90,8 @@ type ScopeRequest struct {
 	TTL   time.Duration
 	// Key is the caller's own id for the work; the same key returns the same live scope.
 	Key string
+	// Policy is the scope's own lifetime row, when lease policies are on.
+	Policy *policypkg.Policy
 }
 
 // StartScope gets or creates a scope. It reports true when Key named a live
@@ -122,7 +125,7 @@ func (m *Manager) StartScope(ctx context.Context, r ScopeRequest) (Lease, bool, 
 	if l, err = newLease(r.Owner, r.TTL, description, nil, now); err != nil {
 		return Lease{}, false, err
 	}
-	l.IsScope, l.Key = true, r.Key
+	l.IsScope, l.Key, l.Policy = true, r.Key, r.Policy
 	if r.Key != "" {
 		l.KeyedBy = ScopeKind
 	}
@@ -217,8 +220,12 @@ func (m *Manager) EndScope(ctx context.Context, id string, confirm bool) (ScopeE
 	}
 	r.Status = "ended"
 	// Expiring first makes every member's owner dead, so no new member can join while they are released.
-	if now.Before(scope.Expires) {
-		scope.Expires = now
+	// An owner-bound scope ignores expiry, so ending it also drops its policy.
+	if now.Before(scope.Expires) || scope.Policy != nil {
+		if now.Before(scope.Expires) {
+			scope.Expires = now
+		}
+		scope.Policy = nil
 		s.Leases[id] = scope
 		if err := s.Save(); err != nil {
 			s.Close()

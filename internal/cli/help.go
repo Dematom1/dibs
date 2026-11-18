@@ -48,7 +48,7 @@ unknown owner is never reclaimed. The lease records its policy.
 --ttl must fit max_lifetime; --idle D and --max-lifetime D may only tighten the
 row. Off, --idle and --max-lifetime exit 2 naming the setting. Built-in
 kind/scope rows renew a scope's shells, terminals and worktrees every 30m, with
-a 10m grace.`
+a 10m grace; the scope row makes a scope itself owner-bound, renewed every 30m.`
 
 var commandHelp = map[string]string{
 	"adopt": `dibs adopt <kind|k3d|compose> <name> --owner KIND:ID --ttl D
@@ -105,9 +105,11 @@ start gets or creates a scope. --key K is the caller's own id for the work: the
 same key and owner return the same live scope (status already_done), another
 owner is key_conflict, and an ended scope is scope_ended. Owner and TTL default
 as in create; a scope cannot be owned by another scope. Renew it with dibs
-extend <id>. Statuses: created, already_done.
-scope:<id> is alive while the scope exists, is unexpired and its owner is alive;
-dead once the scope is absent or itself reclaimable; unknown while its owner is.
+extend <id>. With lease policies on, the scope row applies: owner-bound with a
+30m TTL unless --ttl is given. Statuses: created, already_done.
+scope:<id> is alive while the scope exists, is unexpired or owner-bound, and its
+owner is alive; dead once the scope is absent or itself reclaimable; unknown
+while its owner is.
 end previews the leases the scope owns. --confirm expires the scope, releases
 each of them newest first with the ordinary release, and forgets the scope once
 none remain. A failed release keeps that lease and the scope (exit 1, failures);

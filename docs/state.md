@@ -53,7 +53,7 @@ Release does not delete `resources/<lease-id>/`. The [state and safety guide](gu
 - A non-`process` lease has a `job`.
 - A lease marked adopted appears in a version 1 file. Adopted identities need version 2.
 - A lease with `protect_live_owner` appears in a file below version 3. A lease with a recorded policy, an owner-death stamp, or a shell appears in a file below version 5. A terminal lease appears in a file below version 6. A scope (`is_scope`) or a lease owned by `scope:<id>` appears in a file below version 7.
-- A scope has an adapter other than `none`, a pending resource, a job, a policy, live-owner protection, a `scope:` owner, or a key not recorded as `keyed_by: scope`; or a `scope:` owner names a malformed lease ID; or `keyed_by: scope` appears on a lease that is not a keyed scope.
+- A scope has an adapter other than `none`, a pending resource, a job, live-owner protection, a `scope:` owner, or a key not recorded as `keyed_by: scope`; or a `scope:` owner names a malformed lease ID; or `keyed_by: scope` appears on a lease that is not a keyed scope.
 - A lease with a `key` or a pending `resource` appears in a file below version 4, two leases on one machine share a key, or a pending record names an unknown adapter, an adapter without discovery, an invalid handle, or is also adopted.
 - The adapter's `Validate` rejects the managed resource. Each built-in checks its name pattern (`dibs-`, or the legacy `berth-` name for existing leases), its Docker context, and that its private file sits inside `<dir>/resources/<id>/`. See [Adapters](adapters.md#built-in-adapters).
 
