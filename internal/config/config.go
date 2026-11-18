@@ -230,6 +230,9 @@ func TreehouseWorktree() bool { return readOptIns().TreehouseWorktree }
 // TerminalAdapters reports the terminal_adapters opt-in list.
 func TerminalAdapters() []string { return readOptIns().TerminalAdapters }
 
+// Scopes reports the scopes opt-in.
+func Scopes() bool { return readOptIns().Scopes }
+
 // LeaseWatcher reports the lease_watcher opt-in.
 func LeaseWatcher() bool { return readOptIns().LeaseWatcher }
 

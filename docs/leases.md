@@ -148,7 +148,7 @@ With the consumer contract on, `release` reports `preview`, `released`, or `alre
 
 ### Sweep
 
-`sweep` in `internal/lease/lease.go` walks leases in sorted ID order. It records `unknown` owners, collects reclaimable leases as `eligible`, and, with `--confirm`, calls `releaseLease` on each eligible lease. A failed release goes into `Failures` and keeps its lease. Eligibility is still decided under the lock. Eligible leases whose adapter cleans up outside the lock are marked `releasing` and saved before `sweep` unlocks, then released one at a time through the same path as `Release`, and never with `DiscardUnlanded`. A failed cleanup retains the marker for a later retry. `dibs sweep` exits 1 when any failure occurred. Test: `TestSweepReclaimsOutsideLockWithoutDiscarding`. A second sweep after success is a no-op. Test: `TestSweepPreviewRetryAndIdempotence`.
+`sweep` in `internal/lease/lease.go` walks leases in sorted ID order, with scopes last so it can release dead members first. It records `unknown` owners, collects reclaimable leases as `eligible`, and, with `--confirm`, calls `releaseLease` on each eligible lease. A failed release goes into `Failures` and keeps its lease. Eligibility is still decided under the lock. Eligible leases whose adapter cleans up outside the lock are marked `releasing` and saved before `sweep` unlocks, then released one at a time through the same path as `Release`, and never with `DiscardUnlanded`. A failed cleanup retains the marker for a later retry. `dibs sweep` exits 1 when any failure occurred. Test: `TestSweepReclaimsOutsideLockWithoutDiscarding`. A second sweep after success is a no-op. Test: `TestSweepPreviewRetryAndIdempotence`.
 
 ### Reclaim and explain
 
@@ -176,6 +176,10 @@ The ttl, machine, and job checks come first and keep their exit 1 errors. A refu
 Protection holds through a supervisor outage only when the lease owner is the worker's own liveness source. If the owner is the renewing supervisor's PID, or the supervisor touches the heartbeat file, a supervisor outage reads as owner death and the lease is reclaimed.
 
 Tests: `TestProtectedReclaimAndRenew`, `TestProtectedAdoptReattachesOnlyToPinnedEndpoint`, `TestCLIProtectedRenewRefusalsByOwner`, `TestCLIProtectedLateRenewChecksPinnedResource`, `TestCLIUnprotectedLateRenewUnchanged`, `TestLiveOwnerProtectionOptIn`.
+
+## Scopes
+
+A scope groups and owns the leases of one unit of work. It requires `"scopes": true` in user config or `DIBS_SCOPES=1`; otherwise scope commands and the `scope:` owner kind are off. `dibs scope start --key K` gets or creates a scope keyed by the caller's task or session id. Create or adopt members with `--owner scope:<id>`. `dibs scope end <id> --confirm` releases the members newest first. A scope remains recorded while any member names it as owner.
 
 ## Lease watcher
 
@@ -233,6 +237,8 @@ Reviewers check every change to `internal/lease/lease.go`, `internal/lease/manag
 8. **PID owners pin start identity.** A reused PID reads as `dead`, never as the original owner. The registry's `Check` compares the recorded identity with the live one. Test: `TestOwnerLiveness`.
 9. **A late renew never recreates.** A protected lease reattaches only to the same lease ID and a present resource. Every refusal leaves the record unchanged. Test: `TestProtectedReclaimAndRenew`.
 10. **Job deadlines never move.** `extendLease` refuses reservations. Test: `TestJobsRealProcesses` covers the job lifecycle. See [Jobs](jobs.md#invariants).
+
+11. **A scope outlives its members.** No path forgets a scope while a lease names it as owner, and ending a scope releases only its members. Tests: `TestSweepHoldsScopeWhileAMemberRemains`, `TestScopeStartEndAndForget`.
 
 ## Owner extensions
 

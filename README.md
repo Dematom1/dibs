@@ -83,6 +83,19 @@ AXI and JSON return the lease as `lease.id` and terminal identity as
 `children[]`, each with `pid` and `start`). Same-owner adoption retries return
 the existing lease; use `dibs extend` to renew it.
 
+## Group a unit of work (opt-in)
+
+With `"scopes": true` in your user `config.json`, or `DIBS_SCOPES=1`, a scope groups the leases of one task, session, or job and owns them. Pass your own id for the work as `--key`, so a restart gets the same scope back:
+
+```sh
+dibs scope start --key task-7 --owner KIND:ID
+dibs create --adapter kind --owner scope:<id> --ttl 2h
+dibs scope show <id>
+dibs scope end <id> --confirm
+```
+
+A lease owned by `scope:<id>` lives while the scope is unexpired and its owner is alive. See [Scopes](docs/leases.md#scopes).
+
 ## Reclaim when the owner exits (opt-in)
 
 Set `"lease_watcher": true` in your user `config.json`, or `DIBS_LEASE_WATCHER=1`.
