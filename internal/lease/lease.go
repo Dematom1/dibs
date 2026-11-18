@@ -149,6 +149,9 @@ func releaseLease(ctx context.Context, s *store, id, host string, adapters adapt
 	if l.Machine != host {
 		return false, errors.New("run dibs release on the lease's machine")
 	}
+	if l.IsScope && len(members(s, l.ID)) > 0 {
+		return false, refuse(HoldScopeMembers, "scope "+id+" still owns leases; release them before releasing the scope")
+	}
 	a, ok := adapters.Lookup(l.ResourceRef.Adapter)
 	if !ok && l.ResourceRef.Adapter != "process" {
 		return false, fmt.Errorf("unsupported resource adapter %q; keep the lease and use a compatible dibs version", l.ResourceRef.Adapter)

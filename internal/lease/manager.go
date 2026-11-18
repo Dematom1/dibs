@@ -146,7 +146,10 @@ func (m *Manager) Create(ctx context.Context, r CreateRequest) (Lease, bool, err
 	if r.ScopeUnavailable != nil {
 		return Lease{}, false, r.ScopeUnavailable
 	}
-	if m.checkOwner(r.Owner, now) != ownerpkg.Alive {
+	if m.liveness(s, host)(r.Owner, now) != ownerpkg.Alive {
+		if r.Owner.Kind == ScopeKind {
+			return Lease{}, false, refuse(HoldScopeEnded, "scope "+r.Owner.ID+" has ended; create requires a live scope")
+		}
 		return Lease{}, false, errors.New("owner became stale or unavailable while waiting; refresh the owner and retry dibs create")
 	}
 	l, err := newLease(r.Owner, r.TTL, r.Description, r.Labels, now)
@@ -254,7 +257,7 @@ func (m *Manager) List(ctx context.Context, f Filter) (Listing, error) {
 		if selector != "" && l.Owner.String() != selector {
 			continue
 		}
-		_, live := reclaimable(l, host, now, m.checkOwner)
+		_, live := reclaimable(l, host, now, m.liveness(s, host))
 		result.Leases = append(result.Leases, ObservedLease{detached(l), live})
 	}
 	return result, nil
@@ -285,7 +288,7 @@ func (m *Manager) Extend(ctx context.Context, id string, ttl time.Duration) (Lea
 		}
 		return d.Exists(ctx, target(l))
 	}
-	status, err := extendLease(&l, host, ttl, now, m.checkOwner, present)
+	status, err := extendLease(&l, host, ttl, now, m.liveness(s, host), present)
 	if err != nil {
 		return Lease{}, "", err
 	}
@@ -431,10 +434,10 @@ func (m *Manager) Sweep(ctx context.Context, r SweepRequest) (SweepResult, error
 	var result SweepResult
 	var outside []outsideCleanup
 	if r.ID == "" {
-		result, outside = sweep(ctx, s, host, now, r.Confirm, m.checkOwner, m.options.Adapters)
+		result, outside = sweep(ctx, s, host, now, r.Confirm, m.liveness(s, host), m.options.Adapters)
 	} else {
 		result = SweepResult{Reclaimed: []string{}, Eligible: []string{}, Unknown: []string{}, Failures: map[string]string{}, Held: map[string]string{}}
-		outside = sweepLease(ctx, s, r.ID, host, now, r.Confirm, r.OwnerDead, m.checkOwner, m.options.Adapters, &result, nil)
+		outside = sweepLease(ctx, s, r.ID, host, now, r.Confirm, r.OwnerDead, m.liveness(s, host), m.options.Adapters, &result, nil)
 	}
 	s.Close()
 	for _, c := range outside {
