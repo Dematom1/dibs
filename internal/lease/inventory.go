@@ -68,8 +68,8 @@ func (m *Manager) Adopt(ctx context.Context, r AdoptRequest) (Lease, bool, error
 	}); done || err != nil {
 		return l, done, err
 	}
-	if m.checkOwner(r.Owner, now) != ownerpkg.Alive {
-		return Lease{}, false, errors.New("owner became unavailable while waiting; refresh the owner and retry dibs adopt")
+	if m.liveness(s, host)(r.Owner, now) != ownerpkg.Alive {
+		return Lease{}, false, ownerNotAlive(r.Owner, "owner became unavailable while waiting; refresh the owner and retry dibs adopt")
 	}
 	l, err := newLease(r.Owner, r.TTL, "adopted existing resource", nil, now)
 	if err != nil {

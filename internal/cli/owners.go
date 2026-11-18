@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	configpkg "github.com/Dematom1/dibs/internal/config"
+	leasepkg "github.com/Dematom1/dibs/internal/lease"
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
 )
 
@@ -15,6 +16,9 @@ func newOwners() ownerpkg.Registry {
 	}
 	if optedIn("DIBS_EXEC_OWNER", configpkg.ExecOwner) {
 		owners = append(owners, ownerpkg.Exec(ownerpkg.ExecTimeout))
+	}
+	if scopesEnabled() {
+		owners = append(owners, leasepkg.ScopeOwner())
 	}
 	return ownerpkg.NewRegistry(owners...)
 }
@@ -44,6 +48,11 @@ func shellAdapterEnabled() bool { return optedIn("DIBS_SHELL_ADAPTER", configpkg
 const leasePoliciesOff = `lease policies are off; set DIBS_LEASE_POLICIES=1 or "lease_policies": true in the user config`
 
 func leasePoliciesEnabled() bool { return optedIn("DIBS_LEASE_POLICIES", configpkg.LeasePolicies) }
+
+// scopesOff names the settings that turn on dibs scope and the scope owner kind.
+const scopesOff = `scopes are off; set DIBS_SCOPES=1 or "scopes": true in the user config`
+
+func scopesEnabled() bool { return optedIn("DIBS_SCOPES", configpkg.Scopes) }
 
 // optedIn lets the DIBS_* variable override the user config either way; it has no BERTH_* alias.
 func optedIn(env string, config func() bool) bool {

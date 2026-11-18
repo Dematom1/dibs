@@ -69,13 +69,17 @@ func sameOwner(a, b ownerpkg.Reference) bool {
 // binary refuses state it would misread: 3 for live-owner protection, 4 for keys
 // and pending leases, which a version 3 reader would silently drop on save, and 5
 // for lease policies and shells, which a version 4 reader would reclaim at expiry,
-// and 6 for terminals, which a version 5 reader would not recognize.
+// 6 for terminals, which a version 5 reader would not recognize, and 7 for
+// scopes and their members, which a version 6 reader would release or reclaim
+// without regard to the scope.
 func (s *store) settleVersion() {
 	version := 2
 	for _, l := range s.Leases {
 		switch {
+		case l.IsScope || l.Owner.Kind == ScopeKind:
+			version = 7
 		case l.ResourceRef.Terminal != nil:
-			version = 6
+			version = max(version, 6)
 		case l.Policy != nil || l.DeadSince != nil || l.ResourceRef.Process != nil:
 			version = max(version, 5)
 		case l.Key != "" || l.ResourceRef.Pending:
@@ -433,7 +437,7 @@ func (m *Manager) Reclaim(ctx context.Context, id string, confirm bool) (Reclaim
 	if l.Machine != host {
 		return ReclaimResult{}, refuse("wrong_machine", "run dibs reclaim on the lease's machine")
 	}
-	live := m.checkOwner(l.Owner, now)
+	live := m.liveness(s, host)(l.Owner, now)
 	switch live {
 	case ownerpkg.Alive:
 		return ReclaimResult{}, refuse("owner_alive", "owner "+l.Owner.String()+" is alive; reclaim refused")
@@ -441,7 +445,10 @@ func (m *Manager) Reclaim(ctx context.Context, id string, confirm bool) (Reclaim
 		return ReclaimResult{}, refuse("owner_unknown", "owner "+l.Owner.String()+" cannot be verified; reclaim refused")
 	}
 	v := decide(ctx, l, host, now, func(ownerpkg.Reference, time.Time) ownerpkg.Liveness { return live }, m.options.Adapters)
+	holdScope(s, l, &v)
 	switch v.Hold {
+	case HoldScopeMembers:
+		return ReclaimResult{}, refuse(HoldScopeMembers, "scope "+id+" still owns leases; reclaim refused until they are released")
 	case HoldGrace:
 		if l.DeadSince == nil {
 			return ReclaimResult{}, refuse(HoldGrace, "owner "+l.Owner.String()+" is dead, but the lease's grace period starts only when a confirmed sweep sees the death; reclaim refused")
@@ -517,10 +524,11 @@ func (m *Manager) Explain(ctx context.Context, id string) (Explanation, error) {
 		return Explanation{}, refuse("not_found", "lease "+id+" does not exist on this machine")
 	}
 	e := Explanation{At: now, Lease: detached(l), Expired: !now.Before(l.Expires), ThisMachine: l.Machine == host}
-	e.Verdict = decide(ctx, l, host, now, m.checkOwner, m.options.Adapters)
+	e.Verdict = decide(ctx, l, host, now, m.liveness(s, host), m.options.Adapters)
+	holdScope(s, l, &e.Verdict)
 	e.Policy, e.PolicySource = Governing(l)
 	e.Liveness, e.Sweep = e.Verdict.Liveness, e.Verdict.Reclaim
-	held := e.Verdict.Hold == HoldGrace || e.Verdict.Hold == HoldResourceBusy || e.Verdict.Hold == HoldResourceUnknown || e.Verdict.Hold == HoldLiveOwner
+	held := e.Verdict.Hold == HoldGrace || e.Verdict.Hold == HoldResourceBusy || e.Verdict.Hold == HoldResourceUnknown || e.Verdict.Hold == HoldLiveOwner || e.Verdict.Hold == HoldScopeMembers
 	e.Reclaim = e.ThisMachine && e.Liveness == ownerpkg.Dead && !held
 	e.Reason = why(e, l)
 	if l.ResourceRef.Pending {
@@ -536,6 +544,8 @@ func why(e Explanation, l Lease) string {
 		return "lease belongs to another machine; only that machine may reclaim it"
 	case v.Hold == HoldResourceBusy:
 		return v.Activity.Busy + "; nothing reclaims it while that job runs"
+	case v.Hold == HoldScopeMembers:
+		return "scope has ended but still owns leases; it is forgotten once they are released, which dibs scope end " + l.ID + " --confirm or sweep does"
 	case v.Hold == HoldResourceUnknown:
 		return v.Trigger + " fired, but the resource's activity cannot be read; nothing would reclaim it"
 	case v.Hold == HoldLiveOwner:

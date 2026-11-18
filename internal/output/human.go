@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -68,10 +69,21 @@ func humanValue(key string, value any, now time.Time) string {
 }
 
 func humanObject(w io.Writer, value map[string]any, now time.Time) {
-	for _, key := range keys(value) {
+	order := keys(value)
+	// A lease table reads best after the fields that describe it, such as the scope that owns its rows.
+	order = append(slices.DeleteFunc(order, func(key string) bool { return key == "leases" }), "leases")
+	for _, key := range order {
+		if _, ok := value[key]; !ok {
+			continue
+		}
 		switch key {
 		case "records", "record", "count", "memory_bytes", "help", "code", "exit_code", "contract":
 			continue
+		case "id":
+			// A scope result repeats its id inside the scope fields.
+			if _, ok := value["scope"]; !ok {
+				fmt.Fprintf(w, "%s: %s\n", key, humanValue(key, value[key], now))
+			}
 		case "protect_live_owner":
 			if value[key] == true {
 				fmt.Fprintln(w, "protected: only proven owner death reclaims this lease")
@@ -139,7 +151,7 @@ func humanObject(w io.Writer, value map[string]any, now time.Time) {
 				fmt.Fprintln(table, strings.Join(cells, "\t"))
 			}
 			table.Flush()
-		case "lease":
+		case "lease", "scope":
 			humanObject(w, value[key].(map[string]any), now)
 		case "results":
 			rows := value[key].([]map[string]any)

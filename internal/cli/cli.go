@@ -162,6 +162,9 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 	if command == "adopt" || command == "orphans" {
 		return app.runInventory(ctx, command, args, out, jsonOutput)
 	}
+	if command == "scope" {
+		return app.runScope(ctx, args, out, jsonOutput)
+	}
 	if command == "reconcile" || command == "reclaim" || command == "explain" {
 		return app.runContract(ctx, command, args, out, jsonOutput)
 	}

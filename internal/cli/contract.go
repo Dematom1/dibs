@@ -40,6 +40,9 @@ var reasonHints = map[string]string{
 	"live_owner":          "The condition fired, but the owner is alive or unknown; reclamation requires explicit policy permission for live owners",
 	"cleanup_in_progress": "Run dibs release <id> --confirm to finish the interrupted cleanup; the lease cannot be renewed until it succeeds",
 	"unlanded_work":       "Land or stop what blockers lists, then retry; nothing was cleaned up",
+	"scope_members":       "Run dibs scope end <id> --confirm to release the scope's leases and then forget it",
+	"scope_ended":         "Start a new scope with dibs scope start, choosing a new --key if the old one names the ended scope",
+	"not_scope":           "Run dibs release <id> for a lease that is not a scope",
 }
 
 const keyRule = "--key must be 1-200 letters, digits or ._:/@+=- and start with a letter or digit"

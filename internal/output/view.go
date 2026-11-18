@@ -31,6 +31,9 @@ func LeaseView(l leasepkg.Lease, live ownerpkg.Liveness, now time.Time, kubeconf
 	if l.Key != "" {
 		view["key"] = l.Key
 	}
+	if l.IsScope {
+		view["is_scope"] = true
+	}
 	if l.ProtectLiveOwner {
 		view["protect_live_owner"] = true
 	}

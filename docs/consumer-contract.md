@@ -12,6 +12,8 @@ The contract is off by default. Turn it on per machine with `"consumer_contract"
 
 While it is off, `create --pending`, `--name`, `--key`, `adopt --pending`, `adopt --key`, `reconcile`, `reclaim`, and `explain` fail with exit 2 before any state access, and the error names the setting. `extend` and `release` keep their original output and exit codes, so every existing caller sees exactly what it saw before. Turning the setting off later does not remove keys or pending leases already recorded; `release` and `sweep` still finish them.
 
+`dibs scope` has its own opt-in, `"scopes": true` or `DIBS_SCOPES=1`, and always answers in contract 1 form, whether or not this setting is on. See [Scopes](leases.md#scopes).
+
 ## Verbs
 
 | Verb | Command | Use it when |
@@ -27,6 +29,9 @@ While it is off, `create --pending`, `--name`, `--key`, `adopt --pending`, `adop
 | reclaim | `dibs reclaim ID [--confirm]` | you believe the owner died and want dibs to prove it before destroying anything |
 | list | `dibs list [--owner O]` | you need every lease, or the leases of one owner |
 | explain | `dibs explain ID` | you need to know whether sweep or reclaim would act on a lease, and why |
+| group | `dibs scope start --key K --owner O --ttl D`, then `--owner scope:ID` on `create` or `adopt` | one unit of work holds several leases |
+| end a group | `dibs scope end ID [--confirm]` | the unit of work is done; omit `--confirm` to preview |
+| show a group | `dibs scope show ID` or `dibs scope show --key K` | you need the scope and every lease it owns |
 
 `T` is an adapter name. `create --pending`, `adopt`, and `reconcile` work with every adapter that supports adoption: `kind`, `k3d`, and `compose` today. `create` without `--pending` also supports `none`, which records a metadata-only lease.
 
@@ -99,6 +104,9 @@ Exit 3 means that dibs changed no lease and touched no resource. Opening the led
 | `reconcile` | top level `preview` or `reconciled`; per lease in `results[]`: `bindable`, `bound`, `absent`, `ambiguous`, `conflict`, `unknown`, `already_done` |
 | `reclaim` | `preview`, `reclaimed`, `already_done` |
 | `explain` | `explained` |
+| `scope start` | `created`, `already_done` |
+| `scope end` | `preview`, `ended`, `already_done` |
+| `scope show` | `shown` |
 
 `already_done` means that the call had already happened and dibs did nothing this time. The response still describes the lease, so a retry gets the same answer as the first call.
 
@@ -126,6 +134,10 @@ Exit 3 means that dibs changed no lease and touched no resource. Opening the led
 | `resource_busy` | `reclaim` found the resource doing work, such as a shell with a foreground job | Wait for the work to finish; a busy resource is never reclaimed |
 | `cleanup_in_progress` | `extend` found a lease whose cleanup started outside the state lock (today only `treehouse-worktree`) and has not finished | Run `dibs release ID --confirm` to finish it; the lease is retained until cleanup succeeds |
 | `unlanded_work` | `release` or `reclaim` found a `treehouse-worktree` slot holding uncommitted or unpushed work, or running processes; the response lists them under `blockers` | Land or stop what `blockers` lists, then retry; nothing was cleaned up |
+
+| `scope_members` | `release` or `reclaim` named a scope that still owns leases | Run `dibs scope end ID --confirm`; it releases them and then forgets the scope |
+| `scope_ended` | `scope start --key` named a scope that has ended, or `create` or `adopt` named a scope owner that is not alive | Start a new scope, with a new key while the ended scope is still on the books |
+| `not_scope` | `scope end` named a lease that is not a scope | Use `dibs release ID` |
 
 `reclaim` also refuses with `resource_unknown` when the resource's activity cannot be read.
 
@@ -200,6 +212,7 @@ With lease policies on (see [lease policies](guides/owners.md#lease-policies)), 
 | You learn that a worker died | `dibs reclaim ID --confirm` |
 | Periodic backstop | `dibs sweep --confirm` from a host timer |
 | Audit | `dibs list --owner O`, `dibs explain ID` |
+| One unit of work holds several leases | `dibs scope start --key K --owner O`, `--owner scope:ID` on each acquire, `dibs scope end ID --confirm` when it is done |
 
 Choose an owner whose liveness is the work's own. Use the worker process (`pid:` or `session:`) or a heartbeat file that the worker itself touches. If the owner is the process that starts the work, or a supervisor that touches the heartbeat on the worker's behalf, then that process exiting reads as the work dying, and its leases become reclaimable.
 
@@ -246,6 +259,21 @@ id=$(dibs create --adapter k3d --owner "pid:$RUNNER_PID" --ttl 1h \
 trap 'dibs release "$id" --confirm' EXIT
 ```
 
+### A unit of work with several leases
+
+The scope's owner is the work's own liveness. Each lease the work needs is owned by the scope, so ending the scope, or the owner's death, releases them all. A restart repeats `scope start` with the same key and gets the same scope back.
+
+```sh
+export DIBS_SCOPES=1
+scope=$(dibs --json scope start --key "task-7@2" --owner 'exec:test -e /run/task-7.open' --ttl 8h \
+  | jq -r .id) || exit 1
+dibs create --adapter kind --owner "scope:$scope" --ttl 4h
+dibs adopt tmux %3 --owner "scope:$scope" --ttl 8h
+dibs scope show "$scope"
+# When the work is done:
+dibs scope end "$scope" --confirm
+```
+
 ### A shell script that builds its own resource
 
 ```sh
@@ -270,6 +298,7 @@ New owner kinds come through `owner.Definition{Name, Bind, Check}` registered in
 - An ambiguous match, a match under another lease, or failed discovery never binds and never forgets. (`settlePending`; `TestReconcileAmbiguousConflictUnknown`, `TestPendingCleanupRetainsConflictingResource`)
 - `reclaim` destroys only on proven owner death on this machine. (`Reclaim`; `TestReclaimRequiresProvenDeath`)
 - A key names at most one live lease per machine. (`keyed`, `store.validate`; `TestIdempotencyKeys`)
+- A scope is forgotten only after every lease it owns is gone. (`holdScope`, `EndScope`; `TestSweepHoldsScopeWhileAMemberRemains`)
 - With the contract off, every existing invocation keeps its exact output and exit codes, and every new surface exits 2. (`TestBaselineCommands`, `TestConsumerContractIsOptIn`)
 
 ## Planned
