@@ -58,7 +58,7 @@ func enabledTerminals(r adapterpkg.Registry) ([]string, error) {
 }
 
 // ownerKinds are every kind a policy row may name, whether or not its opt-in is on.
-var ownerKinds = []string{"pid", "session", "heartbeat", "pr", "exec"}
+var ownerKinds = []string{"pid", "session", "heartbeat", "pr", "exec", leasepkg.ScopeKind}
 
 // leasePolicy resolves a new lease's policy and TTL. With policies off it
 // returns no policy and the caller's TTL, and refuses the policy-only flags.

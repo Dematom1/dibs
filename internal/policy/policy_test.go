@@ -28,6 +28,16 @@ func TestDefaultsCoverEveryResource(t *testing.T) {
 	if p := table["treehouse-worktree"]; !p.OwnerBound() || p.TTL != 8*time.Hour || p.Idle != 0 || p.MaxLifetime != 0 {
 		t.Fatalf("worktree default = %+v", p)
 	}
+	// A scope's shells, terminals, and worktrees renew every 30m and keep a 10m grace; labs keep their row.
+	for _, r := range []string{"shell", "tmux", "herdr", "rex", "treehouse-subshell", "treehouse-worktree"} {
+		p, _ := Resolve(table, r, "scope")
+		if base := table[r]; p.Row != r+"/scope" || p.Binding != base.Binding || p.Idle != base.Idle || p.TTL != 30*time.Minute || p.Grace != 10*time.Minute || p.check(p.Row) != nil {
+			t.Fatalf("%s/scope default = %+v", r, p)
+		}
+	}
+	if p, _ := Resolve(table, "kind", "scope"); p.Row != "kind" {
+		t.Fatalf("scope-owned lab = %+v", p)
+	}
 }
 
 func TestConfiguredRowsReplaceAndNarrow(t *testing.T) {
