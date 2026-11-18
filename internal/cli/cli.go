@@ -34,6 +34,9 @@ type application struct {
 func Run(ctx context.Context, args []string, out io.Writer, version string) int {
 	resources, owners := newAdapters(), newOwners()
 	app := application{version, resources, owners, leasepkg.New(leasepkg.Options{Adapters: resources, Owners: owners, Version: version})}
+	if len(args) == 2 && args[0] == watchCommand {
+		return app.runWatch(ctx, args[1])
+	}
 	return app.runWithOutput(ctx, args, out, outputpkg.Auto)
 }
 func (app application) leaseError(out io.Writer, mode outputpkg.Mode, command string, err error) int {
@@ -388,6 +391,7 @@ func (app application) runWithOutput(ctx context.Context, args []string, out io.
 			err = createErr
 			break
 		}
+		app.watch(l)
 		if quiet {
 			fmt.Fprintln(out, l.ID)
 			return 0

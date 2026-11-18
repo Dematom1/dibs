@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
@@ -202,52 +201,60 @@ type SweepResult struct {
 func sweep(ctx context.Context, s *store, host string, now time.Time, confirm bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry) (SweepResult, []outsideCleanup) {
 	r := SweepResult{Reclaimed: []string{}, Eligible: []string{}, Unknown: []string{}, Failures: map[string]string{}, Held: map[string]string{}}
 	var outside []outsideCleanup
-	ids := s.IDs()
-	// Scopes go last, so one pass releases dead members before it decides whether their scope is empty.
-	sort.SliceStable(ids, func(i, j int) bool { return !s.Leases[ids[i]].IsScope && s.Leases[ids[j]].IsScope })
-	for _, id := range ids {
-		l := s.Leases[id]
-		v := decide(ctx, l, host, now, check, adapters)
-		holdScope(s, l, &v)
-		if v.Liveness == ownerpkg.Unknown {
-			r.Unknown = append(r.Unknown, id)
-		}
-		if confirm && observeDeath(&l, v, now) {
-			s.Leases[id] = l
-			if err := s.Save(); err != nil {
-				r.Failures[id] = err.Error()
-				continue
-			}
-		}
-		if v.Trigger != "" && !v.Reclaim {
-			r.Held[id] = v.Hold
-		}
-		if !v.Reclaim {
-			continue
-		}
-		r.Eligible = append(r.Eligible, id)
-		d, ok := adapters.Lookup(l.ResourceRef.Adapter)
-		if ok && d.Terminal != nil {
-			if r.Targets == nil {
-				r.Targets = map[string]string{}
-			}
-			r.Targets[id] = d.Terminal.Describe(l.ResourceRef)
-		}
-		if confirm && ok && d.CleanupOutsideLock {
-			if c, err := markReleasing(s, l); err != nil {
-				r.Failures[id] = err.Error()
-			} else {
-				outside = append(outside, c)
-			}
-			continue
-		}
-		if confirm {
-			if _, err := releaseLease(ctx, s, id, host, adapters); err != nil {
-				r.Failures[id] = err.Error()
-			} else {
-				r.Reclaimed = append(r.Reclaimed, id)
-			}
-		}
+	for _, id := range s.IDs() {
+		outside = sweepLease(ctx, s, id, host, now, confirm, false, check, adapters, &r, outside)
 	}
 	return r, outside
+}
+
+// sweepLease applies sweep to one lease; ownerDead leaves it untouched unless its owner is proven dead.
+func sweepLease(ctx context.Context, s *store, id, host string, now time.Time, confirm, ownerDead bool, check func(ownerpkg.Reference, time.Time) ownerpkg.Liveness, adapters adapterpkg.Registry, r *SweepResult, outside []outsideCleanup) []outsideCleanup {
+	l, ok := s.Leases[id]
+	if !ok {
+		return outside
+	}
+	v := decide(ctx, l, host, now, check, adapters)
+	if ownerDead && v.Liveness != ownerpkg.Dead {
+		return outside
+	}
+	if v.Liveness == ownerpkg.Unknown {
+		r.Unknown = append(r.Unknown, id)
+	}
+	if confirm && observeDeath(&l, v, now) {
+		s.Leases[id] = l
+		if err := s.Save(); err != nil {
+			r.Failures[id] = err.Error()
+			return outside
+		}
+	}
+	if v.Trigger != "" && !v.Reclaim {
+		r.Held[id] = v.Hold
+	}
+	if !v.Reclaim {
+		return outside
+	}
+	r.Eligible = append(r.Eligible, id)
+	d, ok := adapters.Lookup(l.ResourceRef.Adapter)
+	if ok && d.Terminal != nil {
+		if r.Targets == nil {
+			r.Targets = map[string]string{}
+		}
+		r.Targets[id] = d.Terminal.Describe(l.ResourceRef)
+	}
+	if confirm && ok && d.CleanupOutsideLock {
+		if c, err := markReleasing(s, l); err != nil {
+			r.Failures[id] = err.Error()
+		} else {
+			outside = append(outside, c)
+		}
+		return outside
+	}
+	if confirm {
+		if _, err := releaseLease(ctx, s, id, host, adapters); err != nil {
+			r.Failures[id] = err.Error()
+		} else {
+			r.Reclaimed = append(r.Reclaimed, id)
+		}
+	}
+	return outside
 }

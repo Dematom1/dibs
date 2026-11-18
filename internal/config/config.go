@@ -54,6 +54,8 @@ type Config struct {
 	Scopes bool `json:"scopes"`
 	// Handoff turns on dibs handoff.
 	Handoff bool `json:"handoff"`
+	// LeaseWatcher starts a watcher with each process-owned lease that reclaims it on proven owner exit.
+	LeaseWatcher bool `json:"lease_watcher"`
 }
 
 func hostMemory() (int64, error) {
@@ -191,6 +193,7 @@ type optIns struct {
 	TerminalAdapters    []string `json:"terminal_adapters"`
 	Scopes              bool     `json:"scopes"`
 	Handoff             bool     `json:"handoff"`
+	LeaseWatcher        bool     `json:"lease_watcher"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -227,8 +230,8 @@ func TreehouseWorktree() bool { return readOptIns().TreehouseWorktree }
 // TerminalAdapters reports the terminal_adapters opt-in list.
 func TerminalAdapters() []string { return readOptIns().TerminalAdapters }
 
-// Scopes reports the scopes opt-in.
-func Scopes() bool { return readOptIns().Scopes }
+// LeaseWatcher reports the lease_watcher opt-in.
+func LeaseWatcher() bool { return readOptIns().LeaseWatcher }
 
 // Handoff reports the handoff opt-in.
 func Handoff() bool { return readOptIns().Handoff }
