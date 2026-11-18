@@ -190,16 +190,17 @@ Built-in rows apply when the table is on:
 
 The `scope` row is the scope lease itself: `dibs scope start` records it, so a
 scope lives while its owner does and is renewed every 30 minutes. An explicit
-`--ttl` may only shorten its 30-minute TTL. This row has no `max_lifetime` and cannot be narrowed by owner
-kind; `scope` is reserved for this row and cannot name a resource adapter.
+`--ttl` may only shorten its 30-minute TTL. This row has no `max_lifetime`
+and cannot be narrowed by owner kind; `scope` is reserved for this row and
+cannot name a resource adapter.
 `dibs scope end --confirm` drops the row so the ended scope no longer holds its
 members. The `/scope` rows apply to the members of a
 [scope](../leases.md#scopes): their 30-minute TTL and renewal cadence and
-10-minute grace are recorded on each lease. A worktree held by a pull request owner uses the
-`treehouse-worktree/pr` row, owner-bound and renewed every 8 hours with a
-10-minute grace. A policy-enabled handoff selects the new owner's row; other
-worktree owners use the `treehouse-worktree` row. Labs keep their row whatever
-owns them.
+10-minute grace are recorded on each lease. A worktree held by a pull request
+owner uses the `treehouse-worktree/pr` row, owner-bound and renewed every 8
+hours with a 10-minute grace. A policy-enabled handoff selects the new owner's
+row; other worktree owners use the `treehouse-worktree` row. Labs keep their
+row whatever owns them.
 
 Job deadlines come from job classes, and a `process` row is refused. A row you
 configure replaces the built-in row with the same key; omitted fields are off.
