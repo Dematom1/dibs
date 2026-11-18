@@ -223,6 +223,9 @@ func (s *store) validate() error {
 		if l.IsScope && (l.ResourceRef.Adapter != "none" || l.ResourceRef.Pending || l.Reservation != nil || l.ProtectLiveOwner) || (l.KeyedBy == ScopeKind) != (l.IsScope && l.Key != "") {
 			return errors.New("invalid scope record")
 		}
+		if l.IsScope && l.Policy != nil && s.Version < 8 {
+			return errors.New("invalid scope record")
+		}
 		if l.Handoff != nil && (s.Version < 8 || l.Handoff.From.Kind == "" || l.Handoff.At.IsZero()) {
 			return errors.New("invalid handoff record")
 		}

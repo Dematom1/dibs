@@ -65,13 +65,6 @@ func (m *Manager) Handoff(ctx context.Context, r HandoffRequest) (HandoffResult,
 	}
 	next := l
 	next.Owner, next.DeadSince, next.Handoff = r.Owner, nil, &Handoff{From: l.Owner, At: now}
-	// A live owner does not revive an expired time-bound lease, which sweep would still reclaim.
-	if ended, _ := reclaimable(next, host, now, check); ended {
-		return HandoffResult{}, refuse("expired", "lease "+r.ID+" has expired; renew it with dibs extend before handing it off, or release it")
-	}
-	if !r.Confirm {
-		return result, nil
-	}
 	if r.Policy != nil {
 		resource := l.ResourceRef.Adapter
 		if l.IsScope {
@@ -81,6 +74,14 @@ func (m *Manager) Handoff(ctx context.Context, r HandoffRequest) (HandoffResult,
 		if err != nil {
 			return HandoffResult{}, err
 		}
+	}
+	// A live owner does not revive an expired lease that the policy it would carry
+	// makes time-bound, which sweep would still reclaim.
+	if ended, _ := reclaimable(next, host, now, check); ended {
+		return HandoffResult{}, refuse("expired", "lease "+r.ID+" has expired; renew it with dibs extend before handing it off, or release it")
+	}
+	if !r.Confirm {
+		return result, nil
 	}
 	s.Leases[r.ID] = next
 	if err := s.Save(); err != nil {

@@ -72,12 +72,13 @@ func sameOwner(a, b ownerpkg.Reference) bool {
 // 6 for terminals, which a version 5 reader would not recognize, and 7 for
 // scopes and their members, which a version 6 reader would release or reclaim
 // without regard to the scope, and 8 for handoff records, which a version 7
-// reader would drop on save.
+// reader would drop on save, and for scopes that carry a policy, which a version
+// 7 reader rejects as an invalid scope.
 func (s *store) settleVersion() {
 	version := 2
 	for _, l := range s.Leases {
 		switch {
-		case l.Handoff != nil:
+		case l.Handoff != nil || l.IsScope && l.Policy != nil:
 			version = 8
 		case l.IsScope || l.Owner.Kind == ScopeKind:
 			version = max(version, 7)

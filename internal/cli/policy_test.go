@@ -171,6 +171,32 @@ func TestScopeStartRecordsItsPolicy(t *testing.T) {
 	}
 }
 
+// A keyed scope start retried after its row tightened returns the stored scope;
+// only a new scope is held to the tighter row.
+func TestKeyedScopeStartRetryAfterRowTightens(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("DIBS_CONFIG", config)
+	t.Setenv("DIBS_STATE", t.TempDir())
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_LEASE_POLICIES", "1")
+	row := func(ttl string) {
+		if err := os.WriteFile(config, []byte(`{"policies": {"scope": {"binding": "owner", "ttl": "`+ttl+`"}}}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := "pid:" + strconv.Itoa(os.Getpid())
+	row("30m")
+	first := jsonRun(t, 0, "scope", "start", "--key", "task-7", "--owner", owner, "--ttl", "20m")
+	row("10m")
+	again := jsonRun(t, 0, "scope", "start", "--key", "task-7", "--owner", owner, "--ttl", "20m")
+	if again["status"] != "already_done" || again["id"] != first["id"] {
+		t.Fatalf("keyed retry after the row tightened = %v, want scope %v", again, first["id"])
+	}
+	if refused := jsonRun(t, 2, "scope", "start", "--key", "task-8", "--owner", owner, "--ttl", "20m"); !strings.Contains(refused["error"].(string), "exceeds") {
+		t.Fatalf("new scope above the tightened row = %v", refused)
+	}
+}
+
 type policyShell struct{ destroyed *bool }
 
 func (p policyShell) Create(_ context.Context, t adapterpkg.Target) (adapterpkg.ResourceRef, error) {

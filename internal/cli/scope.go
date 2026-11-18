@@ -14,6 +14,7 @@ import (
 	leasepkg "github.com/Dematom1/dibs/internal/lease"
 	outputpkg "github.com/Dematom1/dibs/internal/output"
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
+	policypkg "github.com/Dematom1/dibs/internal/policy"
 	remotepkg "github.com/Dematom1/dibs/internal/remote"
 )
 
@@ -93,11 +94,16 @@ func (app application) runScope(ctx context.Context, args []string, out io.Write
 		}
 		explicitTTL := false
 		fs.Visit(func(f *flag.Flag) { explicitTTL = explicitTTL || f.Name == "ttl" })
-		policy, ttl, err := app.leasePolicy(leasepkg.ScopeKind, reference.Kind, ttl, explicitTTL, 0, 0)
-		if err != nil {
-			return outputpkg.Error(out, mode, 2, err.Error(), help("scope"))
+		var policyErr error
+		resolve := func() (*policypkg.Policy, time.Duration, error) {
+			p, d, err := app.leasePolicy(leasepkg.ScopeKind, reference.Kind, ttl, explicitTTL, 0, 0)
+			policyErr = err
+			return p, d, err
 		}
-		l, done, err := app.leases.StartScope(ctx, leasepkg.ScopeRequest{Owner: reference, TTL: ttl, Key: key, Policy: policy})
+		l, done, err := app.leases.StartScope(ctx, leasepkg.ScopeRequest{Owner: reference, TTL: ttl, Key: key, Policy: resolve})
+		if policyErr != nil {
+			return outputpkg.Error(out, mode, 2, policyErr.Error(), help("scope"))
+		}
 		if err != nil {
 			return app.contractError(out, mode, "scope start", "", err)
 		}
@@ -107,7 +113,7 @@ func (app application) runScope(ctx context.Context, args []string, out io.Write
 		}
 		return emitScope(out, mode, status, map[string]any{"id": l.ID, "scope": outputpkg.LeaseView(l, ownerpkg.Alive, time.Now().UTC(), ""), "help": []string{
 			"Lease resources for this work with --owner scope:" + l.ID + " on dibs create or dibs adopt",
-			"Run dibs extend " + l.ID + " --ttl " + ttl.String() + " to renew the scope",
+			"Run dibs extend " + l.ID + " --ttl " + l.TTL.String() + " to renew the scope",
 			"Run dibs scope end " + l.ID + " --confirm when the work is done",
 		}})
 	case "show":

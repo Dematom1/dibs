@@ -2,12 +2,14 @@ package lease
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
 	ownerpkg "github.com/Dematom1/dibs/internal/owner"
 	policypkg "github.com/Dematom1/dibs/internal/policy"
 )
@@ -300,7 +302,7 @@ func TestOwnerBoundScope(t *testing.T) {
 	owner, stop := liveProcess(t)
 	bound := &policypkg.Policy{Row: "scope", Binding: policypkg.Owner, TTL: 30 * time.Minute, Action: policypkg.Destroy}
 	start := func() (Lease, Lease) {
-		scope, _, err := m.StartScope(ctx, ScopeRequest{Owner: owner, TTL: 30 * time.Minute, Policy: bound})
+		scope, _, err := m.StartScope(ctx, ScopeRequest{Owner: owner, TTL: 30 * time.Minute, Policy: func() (*policypkg.Policy, time.Duration, error) { return bound, bound.TTL, nil }})
 		if err != nil || scope.Policy == nil || scope.Policy.Row != "scope" {
 			t.Fatalf("start = %+v %v", scope, err)
 		}
@@ -349,7 +351,75 @@ func TestOwnerBoundScope(t *testing.T) {
 	if got := check(member, time.Now()); got != ownerpkg.Dead {
 		t.Fatalf("owner-bound scope whose owner died = %s", got)
 	}
-	if v := diskVersion(t, m); v != 7 {
-		t.Fatalf("state version with a scope policy = %d, want 7", v)
+	// A version 7 reader rejects a scope with a policy, so such state is version 8.
+	if v := diskVersion(t, m); v != 8 {
+		t.Fatalf("state version with a scope policy = %d, want 8", v)
+	}
+}
+
+// A keyed retry returns the stored scope without consulting the policy, so a
+// tightened row cannot refuse it; only a new scope runs the policy.
+func TestKeyedScopeRetrySkipsPolicy(t *testing.T) {
+	ctx := context.Background()
+	m := scopeManager(t)
+	owner, _ := liveProcess(t)
+	bound := &policypkg.Policy{Row: "scope", Binding: policypkg.Owner, TTL: 20 * time.Minute, Action: policypkg.Destroy}
+	scope, _, err := m.StartScope(ctx, ScopeRequest{Owner: owner, Key: "task-7", Policy: func() (*policypkg.Policy, time.Duration, error) { return bound, bound.TTL, nil }})
+	if err != nil || scope.TTL != 20*time.Minute {
+		t.Fatalf("start = %+v %v", scope, err)
+	}
+	tightened := errors.New("--ttl 20m0s exceeds the \"scope\" policy's ttl 10m0s")
+	refuse := func() (*policypkg.Policy, time.Duration, error) { return nil, 0, tightened }
+	again, done, err := m.StartScope(ctx, ScopeRequest{Owner: owner, Key: "task-7", Policy: refuse})
+	if err != nil || !done || again.ID != scope.ID {
+		t.Fatalf("keyed retry after the row tightened = %+v %v %v, want the stored scope", again, done, err)
+	}
+	if _, _, err := m.StartScope(ctx, ScopeRequest{Owner: owner, Key: "task-8", Policy: refuse}); !errors.Is(err, tightened) {
+		t.Fatalf("new scope under the tightened row: %v", err)
+	}
+}
+
+// Ending a scope whose grace clock a confirmed sweep started leaves loadable state.
+func TestEndScopeClearsGraceClock(t *testing.T) {
+	ctx := context.Background()
+	m := scopeManager(t)
+	owner, stop := liveProcess(t)
+	graced := &policypkg.Policy{Row: "scope", Binding: policypkg.Owner, TTL: 30 * time.Minute, Grace: time.Hour, Action: policypkg.Destroy}
+	scope, _, err := m.StartScope(ctx, ScopeRequest{Owner: owner, Policy: func() (*policypkg.Policy, time.Duration, error) { return graced, graced.TTL, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Create(ctx, CreateRequest{Owner: scopeOwner(scope.ID), TTL: time.Hour, Adapter: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	stop()
+	if _, err := m.Sweep(ctx, SweepRequest{Confirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	if l, _, _ := m.Get(ctx, scope.ID); l.DeadSince == nil {
+		t.Fatalf("confirmed sweep did not start the scope's grace clock: %+v", l)
+	}
+	ended, err := m.EndScope(ctx, scope.ID, true)
+	if err != nil || !ended.Forgotten {
+		t.Fatalf("end = %+v %v", ended, err)
+	}
+	if _, err := m.openStore(ctx, m.options.Directory); err != nil {
+		t.Fatalf("state after ending a graced scope: %v", err)
+	}
+}
+
+// A version 7 file cannot hold a scope with a policy.
+func TestScopePolicyNeedsVersionEight(t *testing.T) {
+	s := testStore(t)
+	l := Lease{ID: strings.Repeat("a", 32), Machine: "m", Owner: ownerpkg.Reference{Kind: "pid", ID: "1"}, Created: time.Now(), Expires: time.Now().Add(time.Hour), TTL: time.Hour, IsScope: true, ResourceRef: adapterpkg.ResourceRef{Adapter: "none"},
+		Policy: &policypkg.Policy{Row: "scope", Binding: policypkg.Owner, TTL: time.Hour, Action: policypkg.Destroy}}
+	s.Leases[l.ID] = l
+	s.Version = 7
+	if err := s.validate(); err == nil || !strings.Contains(err.Error(), "invalid scope record") {
+		t.Fatalf("version 7 with a scope policy = %v", err)
+	}
+	s.Version = 8
+	if err := s.validate(); err != nil {
+		t.Fatalf("version 8 with a scope policy = %v", err)
 	}
 }
