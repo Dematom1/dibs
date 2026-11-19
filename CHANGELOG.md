@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.6](https://github.com/Dematom1/dibs/compare/v0.2.5...v0.2.6) (2026-11-18)
+
+
+### Features
+
+* **lease:** add configurable lifetime policies ([#64](https://github.com/Dematom1/dibs/issues/64)) ([7430604](https://github.com/Dematom1/dibs/commit/7430604a4de676fb719a0b9f8cec8d85faa70229))
+* **lease:** add opt-in lease handoff ([#63](https://github.com/Dematom1/dibs/issues/63)) ([c62ebcb](https://github.com/Dematom1/dibs/commit/c62ebcbd7a3b5c5aee81862cc3bbad31b8f1ddf6)), closes [#62](https://github.com/Dematom1/dibs/issues/62)
+* **lease:** add task scopes ([#58](https://github.com/Dematom1/dibs/issues/58)) ([8c54757](https://github.com/Dematom1/dibs/commit/8c54757598838cd7c51b7401e290a8854fc65ab4)), closes [#56](https://github.com/Dematom1/dibs/issues/56)
+* **lease:** watch process-owned leases for owner exit ([#57](https://github.com/Dematom1/dibs/issues/57)) ([99f92ed](https://github.com/Dematom1/dibs/commit/99f92edd0062713436f3328f242a935b06fb451b))
+
 ## [0.2.5](https://github.com/Dematom1/dibs/compare/v0.2.4...v0.2.5) (2026-11-17)
 
 
