@@ -174,15 +174,29 @@ reclaim_at, remaining, renew_by, and activity (busy, idle, members).
 Examples:
   dibs explain <id>
   dibs explain <id> --json`,
-	"orphans": `dibs orphans [--context NAME] [--type T] [--server S] [--full] [--axi | --json]
-Read-only inventory of unleased kind, k3d and Compose resources in the selected
-Docker context, plus opted-in terminals. --type limits it to one type; a terminal
-type skips Docker. Includes evidence and adoption command templates.
+	"orphans": `dibs orphans [--context NAME] [--type T] [--server S] [--adopt --ttl D] [--full] [--axi | --json]
+Without --adopt: a read-only inventory of unleased kind, k3d and Compose resources
+in the selected Docker context, plus opted-in terminals. --type limits it to one
+type; a terminal type skips Docker. Includes evidence and adoption command templates.
 Unleased does not mean unused: age never authorizes deletion. No state is written.
+--adopt (opt-in: DIBS_ORPHAN_AUDIT=1 or "orphan_audit": true) adopts only Compose
+projects on a local (unix://) Docker endpoint with agent evidence: every
+container's absolute working_dir inside an orphan_evidence_roots slot (default
+~/.treehouse/*/* and ~/.no-mistakes/worktrees/*/*), or an io.dibs.task label.
+A slot where a live process works is skipped, checked again right before each
+adoption. Each adopted project gets --ttl and this exiting process as owner, so
+the next dibs sweep --confirm runs compose down --volumes on it after any policy
+grace, unless a live process works in its slot again; its cleanup file is
+rebuilt from compose labels. --adopt writes leases. dibs does not schedule this
+command; a periodic job may run it after dibs sweep --confirm. Everything else,
+including kind, k3d and OrbStack machines, is reported only; OrbStack rows are
+unmanaged and never adopted because dibs has no OrbStack adapter. Each row gets
+audit.action; audit counts found, adopted, skipped_live, report_only and failed.
 Examples:
   dibs orphans
   dibs orphans --context orbstack --json
-  dibs orphans --type rex`,
+  dibs orphans --type rex
+  dibs orphans --adopt --ttl 30m --json`,
 	"setup": `dibs setup hooks [--remove] [--axi | --json]
 Install or remove managed Claude Code, Codex, Pi and OpenCode integrations.
 Sets DIBS_AXI=1 in agent shell environments. Repeated setup is a no-op.

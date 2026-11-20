@@ -65,8 +65,8 @@ for release or sweep to clean up partial resources.
 
 ## Lease an existing lab
 
-`orphans` is a read-only inventory of unleased kind clusters, k3d clusters, and
-Compose projects in the selected Docker context. It includes stopped containers
+Without `--adopt`, `orphans` is a read-only inventory of unleased kind clusters,
+k3d clusters, and Compose projects in the selected Docker context. It includes stopped containers
 and Compose projects with only volumes or networks left. It does not list generic
 containers, images, or volumes outside those projects. Unleased does not mean
 unused, and age alone never authorizes cleanup.
@@ -79,10 +79,10 @@ unused, and age alone never authorizes cleanup.
  dibs adopt compose my-stack --file compose.yaml --owner "pid:$$" --ttl 2h
  dibs sweep                         # preview dead-owner or expired leases
  dibs sweep --confirm               # destroy only eligible leased resources
+ dibs orphans --adopt --ttl 30m     # opt-in: adopt agent-left Compose orphans for sweep; writes leases
 ```
 
-Both new commands are explicit opt-ins. Existing create, release, and sweep
-behavior is unchanged. `adopt` requires an explicit owner and positive TTL, even
+`adopt` requires an explicit owner and positive TTL, even
 when `DIBS_OWNER` is set. Supported owners and `--stale` match `create`.
 It refuses missing resources, unknown existence, and resources already leased
 in this ledger, including Docker context aliases with the same endpoint.
@@ -111,6 +111,8 @@ as evidence, not trusted instructions. Inventory never creates or modifies state
 files or resources. State corruption or an incomplete inventory fails with code 1,
 not a misleading empty result. Human, `--axi`, and `--json` output include this
 same evidence and command. Unknown flags fail with code 2 before any operations.
+For automated agent-orphan adoption, its opt-in and safety rules are documented
+in [Adopting agent orphans](../adapters.md#adopting-agent-orphans).
 
 ## Lease a resource you build yourself
 

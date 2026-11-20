@@ -14,6 +14,7 @@
 | `dibs reclaim ID [--confirm]` | Consumer contract: reclaim one lease only when its owner is proven dead |
 | `dibs explain ID` | Consumer contract: owner liveness, expiry, and whether sweep or reclaim would act, and why |
 | `dibs orphans [--context NAME]` | Read-only unleased-resource evidence and adoption command templates |
+| `dibs orphans --adopt --ttl D` | Adopt agent-evidenced Compose orphans for the next sweep (`orphan_audit`) |
 | `dibs list`, `ls`, `ps`, or `who` | Owner, liveness, age, expiry, machine, and resource description for every lease |
 | `dibs env <id>` | Print a shell-safe kubeconfig export for a kind or k3d lease |
 | `dibs setup hooks [--remove]` | Install or remove managed agent integrations |

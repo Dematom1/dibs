@@ -60,6 +60,9 @@ type Config struct {
 	Shims bool `json:"shims"`
 	// ComposeFixedNames lets compose leases own fixed-name volumes and networks labeled with their project.
 	ComposeFixedNames bool `json:"compose_fixed_names"`
+	// OrphanAudit allows dibs orphans --adopt; OrphanEvidenceRoots overrides where agent work lives.
+	OrphanAudit         bool     `json:"orphan_audit"`
+	OrphanEvidenceRoots []string `json:"orphan_evidence_roots,omitempty"`
 }
 
 func hostMemory() (int64, error) {
@@ -200,6 +203,8 @@ type optIns struct {
 	LeaseWatcher        bool     `json:"lease_watcher"`
 	Shims               bool     `json:"shims"`
 	ComposeFixedNames   bool     `json:"compose_fixed_names"`
+	OrphanAudit         bool     `json:"orphan_audit"`
+	OrphanEvidenceRoots []string `json:"orphan_evidence_roots"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -247,6 +252,12 @@ func Shims() bool { return readOptIns().Shims }
 
 // ComposeFixedNames reports the compose_fixed_names opt-in.
 func ComposeFixedNames() bool { return readOptIns().ComposeFixedNames }
+
+// OrphanAudit reports the orphan_audit opt-in.
+func OrphanAudit() bool { return readOptIns().OrphanAudit }
+
+// OrphanEvidenceRoots reports the configured orphan_evidence_roots, nil when unset.
+func OrphanEvidenceRoots() []string { return readOptIns().OrphanEvidenceRoots }
 
 // Handoff reports the handoff opt-in.
 func Handoff() bool { return readOptIns().Handoff }
