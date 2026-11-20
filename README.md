@@ -121,9 +121,17 @@ lease watches the slot: a sweep holds the project as `resource_busy` while a
 live process works there again. A process that starts after the last check and
 before `compose down` finishes is not seen; that window is a few seconds. The cleanup file is
 rebuilt from the compose labels, so a deleted worktree does not block cleanup.
-Everything else, including kind, k3d, and OrbStack machines, is reported only.
+Everything else, including kind, k3d, and OrbStack machines, is reported only;
+OrbStack machines have no dibs adapter and are never adopted. Dibs does not
+schedule this command. A periodic job can run it after the sweep:
+
+```sh
+dibs sweep --confirm
+dibs orphans --adopt --ttl 30m --json
+```
+
 `--json` adds `audit` counts: `found`, `adopted`, `skipped_live`, `report_only`,
-`failed`. Run it right after the periodic sweep. Details:
+`failed`. Details:
 [docs/adapters.md](docs/adapters.md#adopting-agent-orphans).
 
 ## Hand a lease to a new owner (opt-in)
@@ -152,7 +160,8 @@ Opt-in PATH shims route agent creates through dibs; see [Create shims](docs/shim
 - dibs acts only on resources that a lease covers. Unleased resources are never
   swept. Adoption is explicit: a named `dibs adopt`, or the opt-in
   `dibs orphans --adopt`, which adopts every unleased Compose project that
-  matches its agent-evidence rules. The next confirmed sweep then runs
+  matches its agent-evidence rules. Dibs does not schedule the audit; a periodic
+  job may run it after `dibs sweep --confirm`. The next confirmed sweep then runs
   `compose down --volumes` on each one, deleting its volumes, unless a live
   process works in its slot again.
 - Reclaim needs proof: a dead owner or an expired lease. Unknown owner liveness

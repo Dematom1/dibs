@@ -84,6 +84,9 @@ func slotOf(path string, roots []string) (string, bool) {
 // label, is a candidate; places are the slots, or the working directories of a
 // label-only match, where a live process means the project is still in use.
 func classify(row map[string]any, roots []string) (action, reason string, places []string) {
+	if row["type"] == "orbstack-machine" {
+		return auditReportOnly, "no dibs adapter manages OrbStack machines; reported only, never adopted", nil
+	}
 	if row["type"] != "compose" {
 		return auditReportOnly, "only Compose projects are adopted", nil
 	}
@@ -206,7 +209,7 @@ func orbstackMachines(ctx context.Context) ([]map[string]any, error) {
 	}
 	rows := []map[string]any{}
 	for _, m := range machines {
-		rows = append(rows, map[string]any{"type": "orbstack-machine", "name": m.Name, "server": "orbstack", "state": m.State})
+		rows = append(rows, map[string]any{"type": "orbstack-machine", "name": m.Name, "server": "orbstack", "state": m.State, "managed": false})
 	}
 	return rows, nil
 }

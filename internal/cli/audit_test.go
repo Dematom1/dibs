@@ -42,10 +42,14 @@ func TestClassifyAdoptsOnlyAgentEvidence(t *testing.T) {
 		{"no evidence at all", composeRow(map[string]string{"com.docker.compose.service": "web"}), auditReportOnly, nil},
 		{"another state's lease", composeRow(map[string]string{"io.dibs.lease": "x", "io.dibs.task": "t"}), auditReportOnly, nil},
 		{"kind cluster", map[string]any{"type": "kind", "name": "lab"}, auditReportOnly, nil},
+		{"OrbStack machine", map[string]any{"type": "orbstack-machine", "name": "dev"}, auditReportOnly, nil},
 	} {
 		action, reason, places := classify(c.row, roots)
 		if action != c.action || !slices.Equal(places, c.places) {
 			t.Errorf("%s: got %s %v (%s), want %s %v", c.name, action, places, reason, c.action, c.places)
+		}
+		if c.name == "OrbStack machine" && reason != "no dibs adapter manages OrbStack machines; reported only, never adopted" {
+			t.Errorf("OrbStack reason = %q", reason)
 		}
 	}
 }

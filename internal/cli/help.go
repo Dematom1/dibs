@@ -186,8 +186,10 @@ io.dibs.task label. A slot where a live process works is skipped, checked again
 right before each adoption. Each adopted project gets --ttl and this exiting
 process as owner, so the next dibs sweep --confirm runs compose down --volumes on
 it after any policy grace, unless a live process works in its slot again; its
-cleanup file is rebuilt from compose labels. --adopt writes leases. Everything else, including kind, k3d and OrbStack machines, is
-reported only. Each row gets audit.action; audit counts found, adopted,
+cleanup file is rebuilt from compose labels. --adopt writes leases; dibs does not schedule this command. A periodic job may
+run it after dibs sweep --confirm. Everything else, including kind, k3d and
+OrbStack machines, is reported only; OrbStack rows are unmanaged and never
+adopted because dibs has no OrbStack adapter. Each row gets audit.action; audit counts found, adopted,
 skipped_live, report_only and failed.
 Examples:
   dibs orphans
