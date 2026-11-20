@@ -23,6 +23,7 @@ func workdir(dir string) map[string]string {
 	return map[string]string{"com.docker.compose.project.working_dir": dir, "com.docker.compose.service": "web"}
 }
 
+// The orphan-audit acceptance contract adopts Compose projects only from agent slots or task labels; human projects and non-Compose resources remain report-only.
 func TestClassifyAdoptsOnlyAgentEvidence(t *testing.T) {
 	roots := []string{"/h/.treehouse/*/*", "/h/.no-mistakes/worktrees/*/*"}
 	for _, c := range []struct {

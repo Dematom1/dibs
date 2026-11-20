@@ -97,9 +97,18 @@ func decide(ctx context.Context, l Lease, host string, now time.Time, check func
 		}
 	}
 	// A watched resource, such as an adopted agent orphan, is busy while a live process works in a watched directory.
-	if watch := l.ResourceRef.Watch; len(watch) > 0 && len(fired) > 0 && v.Activity == nil {
+	if watch := l.ResourceRef.Watch; len(watch) > 0 && len(fired) > 0 {
 		a, err := adapterpkg.LiveWork(ctx, adapterpkg.RunCommand, watch)
-		v.Activity, v.ActivityErr = &a, err
+		if err != nil {
+			if v.Activity == nil || v.Activity.Busy == "" {
+				v.ActivityErr = err
+			}
+		} else if a.Busy != "" && (v.Activity == nil || v.Activity.Busy == "") {
+			if v.Activity == nil {
+				v.Activity = &adapterpkg.Activity{}
+			}
+			v.Activity.Busy = a.Busy
+		}
 	}
 	if len(fired) == 0 {
 		v.Hold, v.Due = HoldOwnerAlive, earliest(next, grace)

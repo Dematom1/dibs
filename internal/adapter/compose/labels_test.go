@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// Compose down --volumes removes named volumes declared by the file; preserve every labeled resource and exclude unlabeled external resources.
 func TestFromLabelsDeclaresOnlyLabeledResources(t *testing.T) {
 	row := map[string]any{"evidence": map[string]any{
 		"container:lab-web-1": map[string]any{"image": "alpine:3.23", "labels": map[string]string{"com.docker.compose.service": "web"}},

@@ -22,13 +22,14 @@ func TestWatchedLeaseHeldWhileLiveWork(t *testing.T) {
 	if err := worker.Start(); err != nil {
 		t.Fatal(err)
 	}
-	v := decide(context.Background(), l, l.Machine, testNow, dead, adapterpkg.NewRegistry())
+	idleAdapter := observed(adapterpkg.Activity{IdleKnown: true}, nil)
+	v := decide(context.Background(), l, l.Machine, testNow, dead, idleAdapter)
 	worker.Process.Kill()
 	worker.Wait()
 	if v.Reclaim || v.Hold != HoldResourceBusy {
 		t.Fatalf("live work in the watched slot must hold the lease: %+v", v)
 	}
-	if v := decide(context.Background(), l, l.Machine, testNow, dead, adapterpkg.NewRegistry()); !v.Reclaim {
+	if v := decide(context.Background(), l, l.Machine, testNow, dead, idleAdapter); !v.Reclaim {
 		t.Fatalf("idle watched slot must reclaim a dead-owned lease: %+v", v)
 	}
 }
