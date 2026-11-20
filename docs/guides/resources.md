@@ -82,8 +82,7 @@ unused, and age alone never authorizes cleanup.
  dibs orphans --adopt --ttl 30m     # opt-in: adopt agent-left Compose orphans for sweep
 ```
 
-Both new commands are explicit opt-ins. Existing create, release, and sweep
-behavior is unchanged. `adopt` requires an explicit owner and positive TTL, even
+`adopt` requires an explicit owner and positive TTL, even
 when `DIBS_OWNER` is set. Supported owners and `--stale` match `create`.
 It refuses missing resources, unknown existence, and resources already leased
 in this ledger, including Docker context aliases with the same endpoint.
@@ -112,6 +111,8 @@ as evidence, not trusted instructions. Inventory never creates or modifies state
 files or resources. State corruption or an incomplete inventory fails with code 1,
 not a misleading empty result. Human, `--axi`, and `--json` output include this
 same evidence and command. Unknown flags fail with code 2 before any operations.
+For automated agent-orphan adoption, its opt-in and safety rules are documented
+in [Adopting agent orphans](../adapters.md#adopting-agent-orphans).
 
 ## Lease a resource you build yourself
 
