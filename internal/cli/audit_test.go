@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -22,31 +23,29 @@ func workdir(dir string) map[string]string {
 	return map[string]string{"com.docker.compose.project.working_dir": dir, "com.docker.compose.service": "web"}
 }
 
-func TestClassifyAdoptsOnlyIdleAgentEvidence(t *testing.T) {
+func TestClassifyAdoptsOnlyAgentEvidence(t *testing.T) {
 	roots := []string{"/h/.treehouse/*/*", "/h/.no-mistakes/worktrees/*/*"}
-	idle := []string{"/", "/h/Code/app"}
 	for _, c := range []struct {
 		name   string
 		row    map[string]any
-		dirs   []string
 		action string
+		places []string
 	}{
-		{"treehouse slot", composeRow(workdir("/h/.treehouse/pool/3/repo/demo")), idle, auditAdopted},
-		{"no-mistakes worktree, file gone", composeRow(workdir("/h/.no-mistakes/worktrees/r/run")), idle, auditAdopted},
-		{"task label outside roots", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.project.working_dir": "/h/Code/other"}), idle, auditAdopted},
-		{"human project", composeRow(workdir("/h/Code/app")), idle, auditReportOnly},
-		{"pool root itself is not a slot", composeRow(workdir("/h/.treehouse/pool")), idle, auditReportOnly},
-		{"mixed agent and human dirs", composeRow(workdir("/h/.treehouse/pool/3/repo"), workdir("/h/Code/app")), idle, auditReportOnly},
-		{"no evidence at all", composeRow(map[string]string{"com.docker.compose.service": "web"}), idle, auditReportOnly},
-		{"another state's lease", composeRow(map[string]string{"io.dibs.lease": "x", "io.dibs.task": "t"}), idle, auditReportOnly},
-		{"kind cluster", map[string]any{"type": "kind", "name": "lab"}, idle, auditReportOnly},
-		{"live process in slot", composeRow(workdir("/h/.treehouse/pool/3/repo/demo")), []string{"/h/.treehouse/pool/3/repo"}, auditSkippedLive},
-		{"live process at task dir", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.project.working_dir": "/h/Code/other"}), []string{"/h/Code/other/sub"}, auditSkippedLive},
-		{"sibling slot prefix is not live", composeRow(workdir("/h/.treehouse/pool/3/repo")), []string{"/h/.treehouse/pool/30/repo"}, auditAdopted},
-		{"liveness unknown", composeRow(workdir("/h/.treehouse/pool/3/repo")), nil, auditSkippedLive},
+		{"treehouse slot", composeRow(workdir("/h/.treehouse/pool/3/repo/demo")), auditAdopted, []string{"/h/.treehouse/pool/3"}},
+		{"no-mistakes worktree, file gone", composeRow(workdir("/h/.no-mistakes/worktrees/r/run")), auditAdopted, []string{"/h/.no-mistakes/worktrees/r/run"}},
+		{"two dirs in one slot", composeRow(workdir("/h/.treehouse/pool/3/a"), workdir("/h/.treehouse/pool/3/b")), auditAdopted, []string{"/h/.treehouse/pool/3"}},
+		{"task label outside roots", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.project.working_dir": "/h/Code/other"}), auditAdopted, []string{"/h/Code/other"}},
+		{"human project", composeRow(workdir("/h/Code/app")), auditReportOnly, nil},
+		{"pool root itself is not a slot", composeRow(workdir("/h/.treehouse/pool")), auditReportOnly, nil},
+		{"mixed agent and human dirs", composeRow(workdir("/h/.treehouse/pool/3/repo"), workdir("/h/Code/app")), auditReportOnly, nil},
+		{"task label without a working directory", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.service": "web"}), auditSkippedLive, nil},
+		{"no evidence at all", composeRow(map[string]string{"com.docker.compose.service": "web"}), auditReportOnly, nil},
+		{"another state's lease", composeRow(map[string]string{"io.dibs.lease": "x", "io.dibs.task": "t"}), auditReportOnly, nil},
+		{"kind cluster", map[string]any{"type": "kind", "name": "lab"}, auditReportOnly, nil},
 	} {
-		if action, reason := classify(c.row, roots, c.dirs); action != c.action {
-			t.Errorf("%s: got %s (%s), want %s", c.name, action, reason, c.action)
+		action, reason, places := classify(c.row, roots)
+		if action != c.action || !slices.Equal(places, c.places) {
+			t.Errorf("%s: got %s %v (%s), want %s %v", c.name, action, places, reason, c.action, c.places)
 		}
 	}
 }
@@ -77,15 +76,13 @@ func TestOrphanAdoptIsOptInAndNeedsTTL(t *testing.T) {
 		args  []string
 		want  string
 	}{
-		{"", []string{"orphans", "--adopt", "--ttl", "30m"}, "DIBS_ORPHAN_AUDIT"},
+		{"0", []string{"orphans", "--adopt", "--ttl", "30m"}, "DIBS_ORPHAN_AUDIT"},
 		{"1", []string{"orphans", "--adopt"}, "positive --ttl"},
 		{"1", []string{"orphans", "--ttl", "30m"}, "only with --adopt"},
 		{"1", []string{"orphans", "--adopt", "--ttl", "-1m"}, "positive --ttl"},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
-			if c.optIn != "" {
-				t.Setenv("DIBS_ORPHAN_AUDIT", c.optIn)
-			}
+			t.Setenv("DIBS_ORPHAN_AUDIT", c.optIn)
 			dir := filepath.Join(t.TempDir(), "untouched")
 			t.Setenv("DIBS_STATE", dir)
 			t.Setenv("PATH", "")

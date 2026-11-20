@@ -79,31 +79,13 @@ func slotOf(path string, roots []string) (string, bool) {
 	return "", false
 }
 
-// processDirs lists the working directories of this user's processes; an error means liveness is unknown.
-func processDirs(ctx context.Context, run adapterpkg.CommandRunner) ([]string, error) {
-	out, err := run(ctx, nil, "lsof", "-nP", "-a", "-u", strconv.Itoa(os.Getuid()), "-d", "cwd", "-Fn")
-	if err != nil {
-		return nil, errors.New("cannot list process working directories with lsof; liveness unknown")
-	}
-	var dirs []string
-	for line := range strings.Lines(string(out)) {
-		if dir, ok := strings.CutPrefix(strings.TrimRight(line, "\n"), "n"); ok && filepath.IsAbs(dir) {
-			dirs = append(dirs, dir)
-		}
-	}
-	if len(dirs) == 0 {
-		return nil, errors.New("lsof listed no process working directories; liveness unknown")
-	}
-	return dirs, nil
-}
-
-// classify decides what the audit may do with one orphan row. Only a Compose
-// project whose every working directory sits in an agent slot, or that carries
-// an io.dibs.task label, is adoptable, and only while no process works there.
-// dirs is nil when process liveness is unknown.
-func classify(row map[string]any, roots, dirs []string) (string, string) {
+// classify reads one orphan row's agent evidence. Only a Compose project whose
+// every working directory sits in an agent slot, or that carries an io.dibs.task
+// label, is a candidate; places are the slots, or the working directories of a
+// label-only match, where a live process means the project is still in use.
+func classify(row map[string]any, roots []string) (action, reason string, places []string) {
 	if row["type"] != "compose" {
-		return auditReportOnly, "only Compose projects are adopted"
+		return auditReportOnly, "only Compose projects are adopted", nil
 	}
 	var workdirs []string
 	task := false
@@ -112,51 +94,44 @@ func classify(row map[string]any, roots, dirs []string) (string, string) {
 		object, _ := value.(map[string]any)
 		labels, _ := object["labels"].(map[string]string)
 		if labels["io.dibs.lease"] != "" {
-			return auditReportOnly, "labeled for a dibs lease this state does not hold; inspect it on its own machine or state"
+			return auditReportOnly, "labeled for a dibs lease this state does not hold; inspect it on its own machine or state", nil
 		}
 		task = task || labels["io.dibs.task"] != ""
 		if dir := labels["com.docker.compose.project.working_dir"]; dir != "" && !slices.Contains(workdirs, dir) {
 			workdirs = append(workdirs, dir)
 		}
 	}
-	var places []string
 	for _, dir := range workdirs {
 		slot, ok := slotOf(dir, roots)
 		if !ok && !task {
-			return auditReportOnly, "no agent evidence: " + dir + " is outside the evidence roots"
+			return auditReportOnly, "no agent evidence: " + dir + " is outside the evidence roots", nil
 		}
 		if !ok {
-			slot = dir
+			slot = filepath.Clean(dir)
 		}
-		places = append(places, slot)
+		if !slices.Contains(places, slot) {
+			places = append(places, slot)
+		}
 	}
 	if len(places) == 0 && !task {
-		return auditReportOnly, "no agent evidence: no working directory or io.dibs.task label"
+		return auditReportOnly, "no agent evidence: no working directory or io.dibs.task label", nil
 	}
-	if dirs == nil {
-		return auditSkippedLive, "process liveness unknown; nothing is adopted"
+	// Without a working directory there is nowhere to look for live work, so a task label alone never adopts.
+	if len(places) == 0 {
+		return auditSkippedLive, "io.dibs.task label but no working directory to check for live work; nothing is adopted", nil
 	}
-	for _, place := range places {
-		for _, dir := range dirs {
-			if dir == place || strings.HasPrefix(dir, place+"/") {
-				return auditSkippedLive, "a live process works in " + place
-			}
-		}
-	}
-	return auditAdopted, ""
+	return auditAdopted, "", places
 }
 
 // adoptOrphans adopts each agent-evidenced Compose orphan for this short-lived
 // process, so its owner is dead as soon as the audit exits and the normal sweep
-// reclaims it after any policy grace. It annotates every row and returns the counts.
+// reclaims it after any policy grace. Liveness is read again for each project
+// right before it is adopted, and the lease watches the same places, so sweep
+// holds it while a live process works there. It annotates every row and returns the counts.
 func (app application) adoptOrphans(ctx context.Context, docker adapterpkg.ResourceRef, rows []map[string]any, ttl time.Duration) (map[string]int, error) {
 	roots, err := evidenceRoots()
 	if err != nil {
 		return nil, err
-	}
-	dirs, liveErr := processDirs(ctx, adapterpkg.RunCommand)
-	if liveErr != nil {
-		dirs = nil
 	}
 	owner, err := app.owners.Bind(ctx, "pid:"+strconv.Itoa(os.Getpid()), time.Minute, time.Now().UTC())
 	if err != nil {
@@ -168,20 +143,20 @@ func (app application) adoptOrphans(ctx context.Context, docker adapterpkg.Resou
 	}
 	counts := map[string]int{"found": len(rows), auditAdopted: 0, auditSkippedLive: 0, auditReportOnly: 0, auditFailed: 0}
 	for _, row := range rows {
-		action, reason := classify(row, roots, dirs)
-		if action == auditSkippedLive && liveErr != nil {
-			reason = liveErr.Error()
-		}
-		audit := map[string]any{"action": action}
+		action, reason, places := classify(row, roots)
+		audit := map[string]any{}
 		if action == auditAdopted {
-			id, err := app.adoptOrphan(ctx, docker, row, owner, ttl, policy)
-			if err != nil {
+			if activity, err := adapterpkg.LiveWork(ctx, adapterpkg.RunCommand, places); err != nil {
+				action, reason = auditSkippedLive, err.Error()+"; nothing is adopted"
+			} else if activity.Busy != "" {
+				action, reason = auditSkippedLive, activity.Busy
+			} else if id, err := app.adoptOrphan(ctx, docker, row, places, owner, ttl, policy); err != nil {
 				action, reason = auditFailed, err.Error()
-				audit["action"] = action
 			} else {
 				audit["lease"] = id
 			}
 		}
+		audit["action"] = action
 		if reason != "" {
 			audit["reason"] = reason
 		}
@@ -191,7 +166,7 @@ func (app application) adoptOrphans(ctx context.Context, docker adapterpkg.Resou
 	return counts, nil
 }
 
-func (app application) adoptOrphan(ctx context.Context, docker adapterpkg.ResourceRef, row map[string]any, owner ownerpkg.Reference, ttl time.Duration, policy *policypkg.Policy) (string, error) {
+func (app application) adoptOrphan(ctx context.Context, docker adapterpkg.ResourceRef, row map[string]any, watch []string, owner ownerpkg.Reference, ttl time.Duration, policy *policypkg.Policy) (string, error) {
 	data, err := composepkg.FromLabels(row)
 	if err != nil {
 		return "", err
@@ -208,7 +183,7 @@ func (app application) adoptOrphan(ctx context.Context, docker adapterpkg.Resour
 	if err := file.Close(); err != nil {
 		return "", err
 	}
-	docker.Adapter, docker.Name = "compose", row["name"].(string)
+	docker.Adapter, docker.Name, docker.Watch = "compose", row["name"].(string), watch
 	l, _, err := app.leases.Adopt(ctx, leasepkg.AdoptRequest{Owner: owner, TTL: ttl, Resource: docker, File: file.Name(), Policy: policy})
 	if err != nil {
 		return "", err

@@ -32,6 +32,9 @@ type ResourceRef struct {
 	ExcludeRemotes []string `json:"landed_exclude_remotes,omitempty"`
 	// Terminal pins an adopted terminal's server and direct child processes so a reused ID is never reclaimed by guess.
 	Terminal *TerminalPin `json:"terminal,omitempty"`
+	// Watch names directories where a live process means the resource is in
+	// use, so reclaim holds it; dibs orphans --adopt records the agent slots.
+	Watch []string `json:"watch,omitempty"`
 }
 
 type TerminalPin struct {

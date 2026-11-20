@@ -84,6 +84,13 @@ func TestIntegrationOrphanAudit(t *testing.T) {
 	}
 	t.Cleanup(func() { worker.Process.Kill(); worker.Wait() })
 
+	// The audit scans the whole Docker context; refuse to run where it could adopt a project that is not a fixture.
+	for _, item := range invoke(t, 0, "orphans", "--context", docker.Context)["orphans"].([]any) {
+		row := item.(map[string]any)
+		if name := row["name"].(string); !strings.HasPrefix(name, prefix) && strings.Contains(fmt.Sprint(row["evidence"]), "io.dibs.task:") {
+			t.Fatalf("Docker context %s holds unleased project %s with an io.dibs.task label that this test would adopt; run it on an engine without one", docker.Context, name)
+		}
+	}
 	out, err := exec.Command(binary, "--json", "orphans", "--context", docker.Context, "--adopt", "--ttl", "30m").Output()
 	if err != nil {
 		t.Fatalf("orphans --adopt: %s %v", out, err)
@@ -110,6 +117,28 @@ func TestIntegrationOrphanAudit(t *testing.T) {
 	if result.Audit["found"] != len(result.Orphans) || result.Audit[auditAdopted] < 1 || result.Audit[auditSkippedLive] < 1 || result.Audit[auditReportOnly] < 1 {
 		t.Fatalf("audit counts %v", result.Audit)
 	}
+	// The slot is reused before the sweep: new live work there holds the adopted project.
+	reused := filepath.Join(root, "pool", "1", "app")
+	if err := os.MkdirAll(reused, 0700); err != nil {
+		t.Fatal(err)
+	}
+	agent := exec.Command("sleep", "600")
+	agent.Dir = reused
+	if err := agent.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { agent.Process.Kill(); agent.Wait() })
+	held := invoke(t, 0, "sweep", "--confirm")
+	holds, _ := held["held"].(map[string]any)
+	reason, _ := holds[lease].(string)
+	if len(held["reclaimed"].([]any)) != 0 || !strings.Contains(reason, "live process works in") {
+		t.Fatalf("sweep destroyed an adopted project whose slot has live work again: %v", held)
+	}
+	if stillThere, err := adapterpkg.RunCommand(ctx, nil, "docker", "--context", docker.Context, "volume", "ls", "-q", "--filter", "label=com.docker.compose.project="+adopted); err != nil || len(strings.Fields(string(stillThere))) == 0 {
+		t.Fatalf("held project lost its volume: %s %v", stillThere, err)
+	}
+	agent.Process.Kill()
+	agent.Wait()
 	reclaimed := invoke(t, 0, "sweep", "--confirm")["reclaimed"].([]any)
 	if len(reclaimed) != 1 || reclaimed[0] != lease {
 		t.Fatalf("sweep did not reclaim the dead-owned orphan %s: %v", lease, reclaimed)

@@ -73,6 +73,7 @@ func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapter
 		ref.Name = request.Existing.Name
 		ref.Context = request.Existing.Context
 		ref.DockerHost = request.Existing.DockerHost
+		ref.Watch = request.Existing.Watch
 		ref.Adopted = true
 	}
 	out, err = run(ctx, adapterpkg.DockerEnv(ref), "docker", "--context", contextName, "compose", "-p", ref.Name, "-f", file, "config", "--format", "json")
@@ -136,6 +137,11 @@ func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapter
 func validate(dir string, metadata adapterpkg.Metadata, ref adapterpkg.ResourceRef) error {
 	if ref.Adopted && (!adapterpkg.ValidResourceName(ref.Name) || ref.DockerHost == "") {
 		return errors.New("invalid adopted resource identity")
+	}
+	for _, dir := range ref.Watch {
+		if !ref.Adopted || !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
+			return errors.New("invalid watched directory; only an adopted resource records absolute clean paths")
+		}
 	}
 	if (!ref.Adopted && ref.Name != "dibs-"+metadata.LeaseID && ref.Name != "berth-"+metadata.LeaseID) || ref.Context == "" {
 		return errors.New("invalid managed resource identity")

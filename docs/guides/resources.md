@@ -65,8 +65,8 @@ for release or sweep to clean up partial resources.
 
 ## Lease an existing lab
 
-`orphans` is a read-only inventory of unleased kind clusters, k3d clusters, and
-Compose projects in the selected Docker context. It includes stopped containers
+Without `--adopt`, `orphans` is a read-only inventory of unleased kind clusters,
+k3d clusters, and Compose projects in the selected Docker context. It includes stopped containers
 and Compose projects with only volumes or networks left. It does not list generic
 containers, images, or volumes outside those projects. Unleased does not mean
 unused, and age alone never authorizes cleanup.
@@ -79,7 +79,7 @@ unused, and age alone never authorizes cleanup.
  dibs adopt compose my-stack --file compose.yaml --owner "pid:$$" --ttl 2h
  dibs sweep                         # preview dead-owner or expired leases
  dibs sweep --confirm               # destroy only eligible leased resources
- dibs orphans --adopt --ttl 30m     # opt-in: adopt agent-left Compose orphans for sweep
+ dibs orphans --adopt --ttl 30m     # opt-in: adopt agent-left Compose orphans for sweep; writes leases
 ```
 
 `adopt` requires an explicit owner and positive TTL, even

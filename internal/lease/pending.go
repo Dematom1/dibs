@@ -73,13 +73,16 @@ func sameOwner(a, b ownerpkg.Reference) bool {
 // scopes and their members, which a version 6 reader would release or reclaim
 // without regard to the scope, and 8 for handoff records, which a version 7
 // reader would drop on save, and for scopes that carry a policy, which a version
-// 7 reader rejects as an invalid scope.
+// 7 reader rejects as an invalid scope, and 9 for watched directories, which a
+// version 8 reader would drop on save and then reclaim a resource still in use.
 func (s *store) settleVersion() {
 	version := 2
 	for _, l := range s.Leases {
 		switch {
+		case len(l.ResourceRef.Watch) > 0:
+			version = 9
 		case l.Handoff != nil || l.IsScope && l.Policy != nil:
-			version = 8
+			version = max(version, 8)
 		case l.IsScope || l.Owner.Kind == ScopeKind:
 			version = max(version, 7)
 		case l.ResourceRef.Terminal != nil:

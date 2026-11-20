@@ -39,7 +39,8 @@ func FromLabels(row map[string]any) ([]byte, error) {
 		return nil, errors.New("the project has no containers to rebuild a Compose file from; adopt it with dibs adopt --file")
 	}
 	// Compose drops top-level volumes and networks no service uses, and down --volumes would then leave them behind.
-	var mounts, attached []string
+	// Empty lists, not nil: Compose rejects a null service volumes or networks value.
+	mounts, attached := []string{}, []string{}
 	for key := range volumes {
 		mounts = append(mounts, key+":/dibs-orphan/"+key)
 	}
