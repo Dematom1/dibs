@@ -326,6 +326,20 @@ alive; dead once it is absent or ended. dibs scope end <id> --confirm releases i
 of that scope, owned by it; dibs scope end <id> --confirm releases it.`,
 }
 
+// shimsHelp joins the help only while shims are on, so default help bytes stay unchanged.
+var shimsHelp = map[string]string{
+	"": `Shims (DIBS_SHIMS=1 or "shims": true): setup shims.`,
+	"setup": `dibs setup shims [--dir D] [--axi | --json] (DIBS_SHIMS=1 or "shims": true)
+Writes docker, kind, k3d, orb and orbctl PATH shims to D (default
+$XDG_DATA_HOME/dibs/shims); dibs never edits PATH. A shim execs the next real
+tool on PATH unchanged unless DIBS_TASK is set. Then docker compose up, kind
+create cluster and k3d cluster create run as dibs create, owned by DIBS_OWNER,
+scope:$DIBS_SCOPE, or the scope keyed DIBS_TASK; docker run -d, orb create, and
+creates dibs cannot lease exactly are refused (exit 2) naming the dibs command.
+Every other call passes through, as does up on a dibs-<id> compose lease.
+  dibs setup shims --dir ~/.local/share/dibs/shims`,
+}
+
 var worktreeHelp = map[string]string{
 	"adopt": `dibs adopt treehouse-worktree <slot-path> --lease-id ID --owner KIND:ID --ttl D
   [--landed-exclude-remote NAME ...] [--key K] [--protect-live-owner]
@@ -370,6 +384,9 @@ Run dibs <command> --help for command flags.`
 	}
 	if scopesEnabled() && scopeHelp[command] != "" {
 		body += "\n" + scopeHelp[command]
+	}
+	if shimsEnabled() && shimsHelp[command] != "" {
+		body += "\n" + shimsHelp[command]
 	}
 	if handoffEnabled() && command == "" {
 		body += "\n" + `Handoff (DIBS_HANDOFF=1 or "handoff": true): handoff.`

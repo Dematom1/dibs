@@ -37,6 +37,9 @@ func Run(ctx context.Context, args []string, out io.Writer, version string) int 
 	if len(args) == 2 && args[0] == watchCommand {
 		return app.runWatch(ctx, args[1])
 	}
+	if len(args) >= 3 && args[0] == shimCommand {
+		return app.runShim(ctx, args[1:], out)
+	}
 	return app.runWithOutput(ctx, args, out, outputpkg.Auto)
 }
 func (app application) leaseError(out io.Writer, mode outputpkg.Mode, command string, err error) int {

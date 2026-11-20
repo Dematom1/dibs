@@ -123,6 +123,24 @@ dibs handoff <id> --owner 'pr:acme/app#42' --confirm  # retries report already_d
 `dibs explain <id>` shows the last handoff. See
 [Handoff](docs/leases.md#handoff).
 
+## Route agent creates through dibs (opt-in)
+
+With `"shims": true` in your user `config.json`, or `DIBS_SHIMS=1`, `dibs setup shims [--dir D]`
+writes `docker`, `kind`, `k3d`, `orb` and `orbctl` shims. Put the directory first on `PATH` for
+agent sessions; dibs never edits `PATH`. A shim execs the real tool unchanged unless `DIBS_TASK`
+is set, so a human's terminal is unaffected. With `DIBS_TASK` set, `docker compose up`,
+`kind create cluster` and `k3d cluster create` run as `dibs create`, owned by `DIBS_OWNER`,
+`scope:$DIBS_SCOPE`, or the scope keyed by `DIBS_TASK`:
+
+```sh
+dibs scope start --key task-7 --owner KIND:ID
+DIBS_TASK=task-7 docker compose up -d    # leased as compose project dibs-<id>
+```
+
+Reads, deletes and other verbs pass through. `docker run -d`, `orb create`, and creates dibs
+cannot lease exactly (custom names, extra flags) exit 2 and name the `dibs create` command to run.
+See [Create shims](docs/shims.md).
+
 ## Safety
 
 - dibs acts only on resources that a lease covers. Unleased resources are never

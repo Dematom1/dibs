@@ -59,6 +59,9 @@ func runSetup(args []string, out io.Writer, mode outputpkg.Mode) int {
 		emitHelp(out, mode, "setup")
 		return 0
 	}
+	if len(args) > 0 && args[0] == "shims" {
+		return runSetupShims(args[1:], out, mode)
+	}
 	if len(args) == 0 || args[0] != "hooks" {
 		return outputpkg.Error(out, mode, 2, "expected setup hooks", "Run dibs setup hooks [--remove]")
 	}

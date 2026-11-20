@@ -22,6 +22,7 @@ All production code lives under `internal/`. `main.go` holds only the entry poin
 | Remote jobs over SSH | [remote.md](remote.md) | `internal/remote/`, `internal/cli/agent.go`, `internal/cli/machine.go` | `internal/remote/ssh_test.go`, `internal/remote/protocol_test.go`, `internal/remote/ssh_integration_test.go`, `internal/cli/ssh_test.go` |
 | Output modes | [output.md](output.md) | `internal/output/` | `internal/output/output_test.go`, `internal/cli/output_modes_test.go`, `internal/cli/baseline_test.go` |
 | Agent hooks | [hooks.md](hooks.md) | `internal/cli/hooks.go` | `internal/cli/hooks_test.go`, `internal/cli/hooks_compat_test.go` |
+| Create shims | [shims.md](shims.md) | `internal/cli/shims.go` | `internal/cli/shims_test.go` |
 | Configuration and budget | [config.md](config.md) | `internal/config/config.go`, `internal/budget/amount.go` | `internal/config/config_test.go`, `internal/config/compat_test.go` |
 | CLI, exit codes, legacy names | [cli.md](cli.md) | `main.go`, `internal/cli/cli.go`, `internal/cli/help.go`, `internal/compat/env.go` | `internal/cli/cli_test.go`, `compat_test.go`, `main_test.go` |
 

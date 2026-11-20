@@ -17,6 +17,7 @@
 | `dibs list`, `ls`, `ps`, or `who` | Owner, liveness, age, expiry, machine, and resource description for every lease |
 | `dibs env <id>` | Print a shell-safe kubeconfig export for a kind or k3d lease |
 | `dibs setup hooks [--remove]` | Install or remove managed agent integrations |
+| `dibs setup shims [--dir D]` | Write PATH shims that route an agent task's creates through `dibs create` (opt-in) |
 | `dibs extend <id> --ttl D` | Renew an unexpired lease with a live owner; a protected lease may also reattach after expiry |
 | `dibs release <id>` or `down` | Preview cleanup; `--confirm` performs it; `--discard-unlanded` lets a confirmed worktree release discard unlanded work |
 | `dibs sweep` | Preview reclaim of dead-owner or expired leases; `--confirm` performs it |

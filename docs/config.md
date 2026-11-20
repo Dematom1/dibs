@@ -66,6 +66,7 @@ dibs uses the XDG path on macOS too. The legacy fallback never moves or rewrites
 | `scopes` | boolean | Turns on `dibs scope` and the `scope:<id>` owner kind. See [Scopes](leases.md#scopes) |
 | `handoff` | boolean | Turns on `dibs handoff`. See [Handoff](leases.md#handoff) |
 | `lease_watcher` | boolean | Starts a watcher with each `pid:` or `session:` lease that reclaims it when its owner exits. See [Lease watcher](leases.md#lease-watcher) |
+| `shims` | boolean | Turns on `dibs setup shims` and lets installed shims route a `DIBS_TASK` session's creates through `dibs create`. See [Create shims](shims.md) |
 | `lease_policies` | boolean | Turns on the lease policy table, overridden either way by `DIBS_LEASE_POLICIES`. See [lease policies](guides/owners.md#lease-policies) |
 | `policies.<kind>` or `policies.<kind>/<owner kind>` | object | Replaces the built-in policy row with that key. Owner kinds are `pid`, `session`, `heartbeat`, `pr`, `exec`, and `scope`. The reserved bare key `scope` configures the scope lease itself and cannot be narrowed by owner kind. See [lease policies](guides/owners.md#lease-policies) |
 
@@ -101,6 +102,8 @@ A memory string is a non-negative integer with an optional unit: `GiB`, `MiB`, `
 | `DIBS_PR_OWNER`, `DIBS_TREEHOUSE_WORKTREE`, `DIBS_SCOPES`, `DIBS_HANDOFF` | `newOwners`, `newAdapters`, `scopesEnabled`, `handoffEnabled` | Booleans that override the matching config opt-in either way. No `BERTH_*` alias. |
 | `TREEHOUSE_ROOT` | `treehouse-worktree` create and adopt | Pinned on the lease when set, then passed as `--root`; later calls clear it |
 | `DIBS_LEASE_WATCHER` | `leaseWatcherEnabled` | Boolean that overrides `lease_watcher` either way. No `BERTH_*` alias. |
+| `DIBS_SHIMS` | `shimsEnabled` | Boolean that overrides `shims` either way. No `BERTH_*` alias. |
+| `DIBS_TASK`, `DIBS_SCOPE` | `runShim` | Set by an agent supervisor, never by dibs. With `DIBS_TASK` set, an installed shim routes creates through `dibs create`, owned by `DIBS_OWNER`, then `scope:$DIBS_SCOPE`, then the scope keyed `DIBS_TASK`. See [Create shims](shims.md). |
 | `DIBS_LEASE` (and `BERTH_LEASE`) | Set by `startJob` | Lease ID, exported to the job child |
 
 The `DIBS_*` name wins whenever it is set, even when empty. `internal/compat/env.go` reads the legacy `BERTH_*` name only when the new one is unset. Each legacy name in use prints one warning on stderr.

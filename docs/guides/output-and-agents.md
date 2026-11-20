@@ -59,4 +59,17 @@ Setup respects `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, and
 `XDG_CONFIG_HOME`. Claude Code or Codex versions without an environment-file
 hook receive a short instruction to use `dibs --axi` instead. Agents without
 these integrations still get AXI when they capture stdout through a pipe.
-No shell profile changes or executable shims are installed.
+`setup hooks` makes no shell profile changes and installs no executable shims.
+
+### Route agent creates through dibs (opt-in)
+
+```sh
+DIBS_SHIMS=1 dibs setup shims --dir ~/.local/share/dibs/shims
+```
+
+With `"shims": true` in the user config or `DIBS_SHIMS=1`, this writes `docker`,
+`kind`, `k3d`, `orb` and `orbctl` shims. Put the directory first on `PATH` in
+agent sessions. A shim execs the real tool unchanged unless `DIBS_TASK` is set.
+With it set, `docker compose up`, `kind create cluster` and `k3d cluster create`
+run as `dibs create`, and creates dibs cannot lease exactly exit 2 with the
+`dibs create` command to run. Details: [Create shims](../shims.md).
