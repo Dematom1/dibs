@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.7](https://github.com/Dematom1/dibs/compare/v0.2.6...v0.2.7) (2026-11-20)
+
+
+### Features
+
+* **cli:** add opt-in resource creation shims ([#72](https://github.com/Dematom1/dibs/issues/72)) ([87b7867](https://github.com/Dematom1/dibs/commit/87b78675a5203dab00027dfe8dbe0f3921c07e66))
+* **cli:** adopt agent-evidenced Compose orphans ([#71](https://github.com/Dematom1/dibs/issues/71)) ([5c62f74](https://github.com/Dematom1/dibs/commit/5c62f74d14f2c4029585695204a019e52fe2cca3)), closes [#69](https://github.com/Dematom1/dibs/issues/69)
+
+
+### Bug Fixes
+
+* **compose:** safely manage fixed-name resources ([#73](https://github.com/Dematom1/dibs/issues/73)) ([fda0617](https://github.com/Dematom1/dibs/commit/fda0617acf46484bcac322c9a23491a9bd119c18))
+
 ## [0.2.6](https://github.com/Dematom1/dibs/compare/v0.2.5...v0.2.6) (2026-11-18)
 
 
