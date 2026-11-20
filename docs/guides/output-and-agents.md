@@ -59,4 +59,8 @@ Setup respects `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, and
 `XDG_CONFIG_HOME`. Claude Code or Codex versions without an environment-file
 hook receive a short instruction to use `dibs --axi` instead. Agents without
 these integrations still get AXI when they capture stdout through a pipe.
-No shell profile changes or executable shims are installed.
+`setup hooks` makes no shell profile changes and installs no executable shims.
+
+### Route agent creates through dibs
+
+See [Create shims](../shims.md) for the opt-in setup and interception rules.

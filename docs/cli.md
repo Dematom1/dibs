@@ -56,6 +56,7 @@ The SSH handshake compares this string exactly. See [Remote jobs over SSH](remot
 | `orphans` | `--context` | none |
 | `machine install` | `--file` (required) | machine name |
 | `setup hooks` | `--remove` | none |
+| `setup shims` | `--dir` (default `$XDG_DATA_HOME/dibs/shims`; needs the `shims` opt-in, otherwise exit 2) | none |
 | `agent` | none | none (internal, see [Remote jobs over SSH](remote.md#agent-side)) |
 
 Every command accepts `--help`. Every command except `agent` accepts `--axi` and `--json`. The lease commands also accept `--full`, which turns off AXI truncation. `list --owner` compares canonical owner strings: it normalizes PID spellings and makes heartbeat paths absolute, without checking liveness. Test: `TestCLIOwnerFilterUsesCanonicalIdentity`.
@@ -72,6 +73,7 @@ Behavior lives in the component docs:
 - `job`: [Jobs](jobs.md).
 - `agent`, `machine install`, and `--machine`: [Remote jobs over SSH](remote.md).
 - `setup hooks`: [Agent hooks](hooks.md).
+- `setup shims`: [Create shims](shims.md).
 
 ## Usage checks come first
 
@@ -94,6 +96,7 @@ Behavior lives in the component docs:
 - The `cadence` constant, for `create` and `extend`.
 - The `scopeHelp` lines, for the command list, `create`, and `adopt`, only while scopes are on, so the default help is unchanged.
 - A `handoff` line, for the command list, only while handoff is on.
+- The `shimsHelp` lines, for the command list and `setup`, only while shims are on.
 - Lines about output modes, for every command except `agent`.
 - The `exitCodes` constant, for every command.
 

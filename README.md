@@ -123,6 +123,10 @@ dibs handoff <id> --owner 'pr:acme/app#42' --confirm  # retries report already_d
 `dibs explain <id>` shows the last handoff. See
 [Handoff](docs/leases.md#handoff).
 
+## Route agent creates through dibs (opt-in)
+
+Opt-in PATH shims route agent creates through dibs; see [Create shims](docs/shims.md) for setup and behavior.
+
 ## Safety
 
 - dibs acts only on resources that a lease covers. Unleased resources are never

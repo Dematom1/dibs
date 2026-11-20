@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -292,5 +293,49 @@ func TestIntegrationProtectedLeaseReattach(t *testing.T) {
 			}
 			invoke(t, 0, "release", id, "--confirm")
 		})
+	}
+}
+
+// A task's shimmed docker compose up becomes a compose lease owned by the scope keyed by the task.
+func TestIntegrationShimCompose(t *testing.T) {
+	integrationReady(t, "compose")
+	real, err := exec.LookPath("docker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DIBS_SCOPES", "1")
+	t.Setenv("DIBS_SHIMS", "1")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services:\n  test:\n    image: alpine:3.23\n    command: [sleep, '600']\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scope := invoke(t, 0, "scope", "start", "--key", "shim-task")["id"].(string)
+	t.Setenv("DIBS_OWNER", "")
+	os.Unsetenv("DIBS_OWNER")
+	t.Setenv("DIBS_TASK", "shim-task")
+	t.Chdir(dir)
+	var out bytes.Buffer
+	if code := run(context.Background(), []string{shimCommand, "docker", real, "compose", "up", "-d"}, &out); code != 0 {
+		t.Fatalf("shimmed compose up exited %d: %s", code, out.String())
+	}
+	if os.Getenv("DIBS_TASK") != "" {
+		t.Fatal("DIBS_TASK must not reach the adapter's own tool calls")
+	}
+	listing, err := testApplication().leases.List(context.Background(), leasepkg.Filter{Owner: "scope:" + scope})
+	if err != nil || len(listing.Leases) != 1 {
+		t.Fatalf("scope members: %+v, %v", listing.Leases, err)
+	}
+	l := listing.Leases[0].Lease
+	if l.ResourceRef.Adapter != "compose" || l.Labels["task"] != "shim-task" {
+		t.Fatalf("lease: %+v", l)
+	}
+	ps, err := adapterpkg.RunCommand(context.Background(), nil, "docker", "ps", "-q", "--filter", "label=io.dibs.lease="+l.ID)
+	if err != nil || len(strings.TrimSpace(string(ps))) == 0 {
+		t.Fatalf("stack not running under its lease: %s, %v", ps, err)
+	}
+	invoke(t, 0, "scope", "end", scope, "--confirm")
+	ps, err = adapterpkg.RunCommand(context.Background(), nil, "docker", "ps", "-aq", "--filter", "label=io.dibs.lease="+l.ID)
+	if err != nil || len(strings.TrimSpace(string(ps))) != 0 {
+		t.Fatalf("stack survived scope end: %s, %v", ps, err)
 	}
 }

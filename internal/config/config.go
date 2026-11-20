@@ -56,6 +56,8 @@ type Config struct {
 	Handoff bool `json:"handoff"`
 	// LeaseWatcher starts a watcher with each process-owned lease that reclaims it on proven owner exit.
 	LeaseWatcher bool `json:"lease_watcher"`
+	// Shims lets PATH shims from dibs setup shims route a DIBS_TASK session's creates through dibs create.
+	Shims bool `json:"shims"`
 }
 
 func hostMemory() (int64, error) {
@@ -194,6 +196,7 @@ type optIns struct {
 	Scopes              bool     `json:"scopes"`
 	Handoff             bool     `json:"handoff"`
 	LeaseWatcher        bool     `json:"lease_watcher"`
+	Shims               bool     `json:"shims"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -235,6 +238,9 @@ func Scopes() bool { return readOptIns().Scopes }
 
 // LeaseWatcher reports the lease_watcher opt-in.
 func LeaseWatcher() bool { return readOptIns().LeaseWatcher }
+
+// Shims reports the shims opt-in.
+func Shims() bool { return readOptIns().Shims }
 
 // Handoff reports the handoff opt-in.
 func Handoff() bool { return readOptIns().Handoff }
