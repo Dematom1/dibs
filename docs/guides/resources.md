@@ -99,8 +99,9 @@ their combined configuration. Fixed nonexternal volume and network names outside
 `<project>_<key>` are refused unless `compose_fixed_names` (or
 `DIBS_COMPOSE_FIXED_NAMES=1`) is on. Existing nonexternal volumes and networks must
 also carry that project's Compose label, and a fixed-name one must not be used by
-containers outside the project. Release then removes it with the project. Mark shared resources `external`. Existing fixed
-container names are permitted because adoption explicitly selects their project.
+containers outside the project. Release then removes it with the project. Mark
+shared resources `external`. Existing fixed container names are permitted because
+adoption explicitly selects their project.
 Cleanup does not require the original file or working directory to survive.
 Existing resource labels are not changed or recreated. Dibs records the
 `io.dibs.lease`, `io.dibs.owner`, `io.dibs.expires`, and `io.dibs.machine`
