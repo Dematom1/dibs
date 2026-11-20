@@ -250,17 +250,14 @@ func LeaseWatcher() bool { return readOptIns().LeaseWatcher }
 // Shims reports the shims opt-in.
 func Shims() bool { return readOptIns().Shims }
 
-<<<<<<< HEAD
 // ComposeFixedNames reports the compose_fixed_names opt-in.
 func ComposeFixedNames() bool { return readOptIns().ComposeFixedNames }
-||||||| parent of efdb662 (feat(orphans): adopt agent-evidenced orphans for sweep (opt-in))
-=======
+
 // OrphanAudit reports the orphan_audit opt-in.
 func OrphanAudit() bool { return readOptIns().OrphanAudit }
 
 // OrphanEvidenceRoots reports the configured orphan_evidence_roots, nil when unset.
 func OrphanEvidenceRoots() []string { return readOptIns().OrphanEvidenceRoots }
->>>>>>> efdb662 (feat(orphans): adopt agent-evidenced orphans for sweep (opt-in))
 
 // Handoff reports the handoff opt-in.
 func Handoff() bool { return readOptIns().Handoff }
