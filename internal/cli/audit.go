@@ -91,18 +91,30 @@ func classify(row map[string]any, roots []string) (action, reason string, places
 		return auditReportOnly, "only Compose projects are adopted", nil
 	}
 	var workdirs []string
-	task := false
+	task, unplaced := false, ""
 	evidence, _ := row["evidence"].(map[string]any)
-	for _, value := range evidence {
+	for key, value := range evidence {
 		object, _ := value.(map[string]any)
 		labels, _ := object["labels"].(map[string]string)
 		if labels["io.dibs.lease"] != "" {
 			return auditReportOnly, "labeled for a dibs lease this state does not hold; inspect it on its own machine or state", nil
 		}
 		task = task || labels["io.dibs.task"] != ""
-		if dir := labels["com.docker.compose.project.working_dir"]; dir != "" && !slices.Contains(workdirs, dir) {
+		dir := labels["com.docker.compose.project.working_dir"]
+		if container := strings.HasPrefix(key, "container:"); container && dir == "" {
+			// Every container's work must be observable; one without a directory cannot be checked for live work.
+			unplaced = key
+		} else if dir != "" && !filepath.IsAbs(dir) {
+			return auditReportOnly, "working directory " + dir + " is not absolute; it cannot be checked for live work", nil
+		} else if dir != "" && !slices.Contains(workdirs, dir) {
 			workdirs = append(workdirs, dir)
 		}
+	}
+	if unplaced != "" && !task {
+		return auditReportOnly, "no agent evidence: " + unplaced + " has no working directory", nil
+	}
+	if unplaced != "" {
+		return auditSkippedLive, unplaced + " has no working directory to check for live work; nothing is adopted", nil
 	}
 	for _, dir := range workdirs {
 		slot, ok := slotOf(dir, roots)
@@ -145,8 +157,13 @@ func (app application) adoptOrphans(ctx context.Context, docker adapterpkg.Resou
 		return nil, err
 	}
 	counts := map[string]int{"found": len(rows), auditAdopted: 0, auditSkippedLive: 0, auditReportOnly: 0, auditFailed: 0}
+	// lsof sees only this host's processes, so only a local engine's projects can be checked for live work.
+	local := strings.HasPrefix(docker.DockerHost, "unix://")
 	for _, row := range rows {
 		action, reason, places := classify(row, roots)
+		if action == auditAdopted && !local {
+			action, reason = auditReportOnly, "Docker endpoint "+docker.DockerHost+" is not a local socket; live work there cannot be observed from this host"
+		}
 		audit := map[string]any{}
 		if action == auditAdopted {
 			if activity, err := adapterpkg.LiveWork(ctx, adapterpkg.RunCommand, places); err != nil {

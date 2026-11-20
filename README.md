@@ -110,16 +110,18 @@ as the backstop. Details: [docs/leases.md](docs/leases.md#lease-watcher).
 
 Set `"orphan_audit": true` in your user `config.json`, or `DIBS_ORPHAN_AUDIT=1`.
 Then `dibs orphans --adopt --ttl 30m` adopts only unleased Compose projects with
-agent evidence: every container working directory sits in an agent slot
-(`~/.treehouse/*/*` or `~/.no-mistakes/worktrees/*/*`; `orphan_evidence_roots`
-overrides the list), or the project carries an `io.dibs.task` label. A project in
+agent evidence on a local Docker endpoint: every container working directory sits
+in an agent slot (`~/.treehouse/*/*` or `~/.no-mistakes/worktrees/*/*`;
+`orphan_evidence_roots` overrides the list), or the project carries an
+`io.dibs.task` label. A project in
 a slot where a live process still works is skipped, checked again right before
 each adoption. Each adopted project is owned by the audit process itself, which
 is gone when the command returns, so the next `dibs sweep --confirm` reclaims it
 with `compose down --volumes`, deleting its volumes, after any policy grace. The
 lease watches the slot: a sweep holds the project as `resource_busy` while a
 live process works there again. A process that starts after the last check and
-before `compose down` finishes is not seen; that window is a few seconds. The cleanup file is
+before `compose down` finishes is not seen; that window lasts until cleanup
+finishes. The cleanup file is
 rebuilt from the compose labels, so a deleted worktree does not block cleanup.
 Everything else, including kind, k3d, and OrbStack machines, is reported only;
 OrbStack machines have no dibs adapter and are never adopted. Dibs does not

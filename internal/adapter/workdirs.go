@@ -20,12 +20,45 @@ func ProcessDirs(ctx context.Context, run CommandRunner) ([]string, error) {
 	for line := range strings.Lines(string(out)) {
 		if dir, ok := strings.CutPrefix(strings.TrimRight(line, "\n"), "n"); ok && filepath.IsAbs(dir) {
 			dirs = append(dirs, Canonical(dir))
+			// lsof escapes non-printable bytes but not a literal backslash or caret, so keep both
+			// spellings: an extra candidate can only find more live work, never hide it.
+			if decoded := unescapeLsof(dir); decoded != dir {
+				dirs = append(dirs, Canonical(decoded))
+			}
 		}
 	}
 	if len(dirs) == 0 {
 		return nil, errors.New("lsof listed no process working directories; liveness unknown")
 	}
 	return dirs, nil
+}
+
+// unescapeLsof reverses lsof's output escapes for non-printable bytes: the C
+// forms \b \f \n \r \t, the hexadecimal form \xHH, and the control form ^X.
+func unescapeLsof(name string) string {
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c == '\\' && i+3 < len(name) && name[i+1] == 'x' && isHex(name[i+2]) && isHex(name[i+3]):
+			v, _ := strconv.ParseUint(name[i+2:i+4], 16, 8)
+			b.WriteByte(byte(v))
+			i += 3
+		case c == '\\' && i+1 < len(name) && strings.IndexByte("bfnrt", name[i+1]) >= 0:
+			b.WriteByte("\b\f\n\r\t"[strings.IndexByte("bfnrt", name[i+1])])
+			i++
+		case c == '^' && i+1 < len(name) && name[i+1] >= '@' && name[i+1] <= '_':
+			b.WriteByte(name[i+1] - '@')
+			i++
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
 // Canonical resolves symlinks in the longest existing prefix of an absolute
@@ -49,8 +82,9 @@ func Canonical(path string) string {
 func WorkIn(dirs, places []string) string {
 	for _, place := range places {
 		real := Canonical(place)
+		// TrimSuffix keeps "/" itself a parent of every directory instead of matching only "//".
 		for _, dir := range dirs {
-			if dir == real || strings.HasPrefix(dir, real+"/") {
+			if dir == real || strings.HasPrefix(dir, strings.TrimSuffix(real, "/")+"/") {
 				return place
 			}
 		}

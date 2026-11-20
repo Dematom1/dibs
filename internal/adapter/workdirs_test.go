@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,7 @@ func TestWorkInComparesRealPaths(t *testing.T) {
 		filepath.Join(link, "pool", "3"):         true,
 		filepath.Join(link, "pool", "3", "repo"): true,
 		filepath.Join(link, "pool", "30"):        false,
+		"/":                                      true,
 		filepath.Join(link, "pool", "3", "gone"): false,
 		filepath.Join(link, "pool"):              true,
 	} {
@@ -60,5 +62,24 @@ func TestLiveWorkReadsLsof(t *testing.T) {
 		if _, err := LiveWork(context.Background(), runner, []string{dir}); err == nil {
 			t.Fatal("unreadable process list must be unknown, not idle")
 		}
+	}
+}
+
+// Under the C locale lsof prints a non-ASCII name byte as \xHH; the slot must still match.
+func TestProcessDirsDecodesLsofEscapes(t *testing.T) {
+	slot := filepath.Join(t.TempDir(), "caf\u00e9")
+	if err := os.MkdirAll(filepath.Join(slot, "repo"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	escaped := strings.ReplaceAll(filepath.Join(slot, "repo"), "\u00e9", `\xc3\xa9`)
+	run := func(context.Context, []string, string, ...string) ([]byte, error) {
+		return []byte("p1\nfcwd\nn" + escaped + "\n"), nil
+	}
+	busy, err := LiveWork(context.Background(), run, []string{slot})
+	if err != nil || busy.Busy == "" {
+		t.Fatalf("escaped lsof name hid live work in %s: %v %v", slot, busy, err)
+	}
+	if got := unescapeLsof(`/a\tb^@c\x41\q`); got != "/a\tb\x00cA\\q" {
+		t.Fatalf("unescape: %q", got)
 	}
 }

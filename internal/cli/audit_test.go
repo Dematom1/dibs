@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func composeRow(labels ...map[string]string) map[string]any {
@@ -39,6 +41,9 @@ func TestClassifyAdoptsOnlyAgentEvidence(t *testing.T) {
 		{"human project", composeRow(workdir("/h/Code/app")), auditReportOnly, nil},
 		{"pool root itself is not a slot", composeRow(workdir("/h/.treehouse/pool")), auditReportOnly, nil},
 		{"mixed agent and human dirs", composeRow(workdir("/h/.treehouse/pool/3/repo"), workdir("/h/Code/app")), auditReportOnly, nil},
+		{"one container in a slot, another without a directory", composeRow(workdir("/h/.treehouse/pool/3/repo"), map[string]string{"com.docker.compose.service": "worker"}), auditReportOnly, nil},
+		{"task label, one container without a directory", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.project.working_dir": "/h/Code/other"}, map[string]string{"com.docker.compose.service": "worker"}), auditSkippedLive, nil},
+		{"task label with a relative directory", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.project.working_dir": "repo/demo"}), auditReportOnly, nil},
 		{"task label without a working directory", composeRow(map[string]string{"io.dibs.task": "t1", "com.docker.compose.service": "web"}), auditSkippedLive, nil},
 		{"no evidence at all", composeRow(map[string]string{"com.docker.compose.service": "web"}), auditReportOnly, nil},
 		{"another state's lease", composeRow(map[string]string{"io.dibs.lease": "x", "io.dibs.task": "t"}), auditReportOnly, nil},
@@ -99,5 +104,23 @@ func TestOrphanAdoptIsOptInAndNeedsTTL(t *testing.T) {
 				t.Fatal("usage error touched state")
 			}
 		})
+	}
+}
+
+// lsof sees only this host's processes, so a project on a remote engine is never
+// adopted: its live work cannot be observed before adoption or before sweep.
+func TestRemoteEndpointOrphansAreReportOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DIBS_CONFIG", filepath.Join(t.TempDir(), "absent.json"))
+	t.Setenv("DIBS_STATE", t.TempDir())
+	row := composeRow(workdir(filepath.Join(home, ".treehouse", "pool", "3", "repo")))
+	counts, err := testApplication().adoptOrphans(context.Background(), adapterpkg.ResourceRef{Context: "remote", DockerHost: "ssh://build-host"}, []map[string]any{row}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := row["audit"].(map[string]any)
+	if counts[auditAdopted] != 0 || audit["action"] != auditReportOnly || !strings.Contains(audit["reason"].(string), "not a local socket") {
+		t.Fatalf("remote project must be report-only: %v %v", counts, audit)
 	}
 }
