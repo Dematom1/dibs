@@ -198,12 +198,8 @@ type optIns struct {
 	Scopes              bool     `json:"scopes"`
 	Handoff             bool     `json:"handoff"`
 	LeaseWatcher        bool     `json:"lease_watcher"`
-<<<<<<< HEAD
 	Shims               bool     `json:"shims"`
-||||||| parent of 13edfde (feat(compose): lease stacks with fixed-name networks and volumes)
-=======
 	ComposeFixedNames   bool     `json:"compose_fixed_names"`
->>>>>>> 13edfde (feat(compose): lease stacks with fixed-name networks and volumes)
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -246,14 +242,11 @@ func Scopes() bool { return readOptIns().Scopes }
 // LeaseWatcher reports the lease_watcher opt-in.
 func LeaseWatcher() bool { return readOptIns().LeaseWatcher }
 
-<<<<<<< HEAD
 // Shims reports the shims opt-in.
 func Shims() bool { return readOptIns().Shims }
-||||||| parent of 13edfde (feat(compose): lease stacks with fixed-name networks and volumes)
-=======
+
 // ComposeFixedNames reports the compose_fixed_names opt-in.
 func ComposeFixedNames() bool { return readOptIns().ComposeFixedNames }
->>>>>>> 13edfde (feat(compose): lease stacks with fixed-name networks and volumes)
 
 // Handoff reports the handoff opt-in.
 func Handoff() bool { return readOptIns().Handoff }
