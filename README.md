@@ -44,7 +44,7 @@ JSON with `jq`.
 | Nothing external (metadata only) | `none`, the default for `create` | Records the owner, expiry, and labels. Release and sweep forget the record and delete nothing. | Nothing |
 | kind cluster | `kind` | Creates a uniquely named cluster with a private kubeconfig, and deletes it on release. Your kubeconfig is not touched. | `kind`, `docker`, a running Docker engine |
 | k3d cluster | `k3d` | Creates a cluster with a private kubeconfig, and deletes it on release. Your kubeconfig is not touched. | `k3d`, `docker`, a running Docker engine |
-| Docker Compose project | `compose` | Runs a resolved snapshot of your Compose file. Release runs `down --volumes`, which deletes the project's volumes. | `docker compose`, a running Docker engine |
+| Docker Compose project | `compose` | Runs a resolved snapshot of your Compose file. Release runs `down --volumes`, which deletes the project's volumes. Fixed volume and network names owned by the project need `DIBS_COMPOSE_FIXED_NAMES=1`. | `docker compose`, a running Docker engine |
 | Existing kind, k3d, or Compose resource | `dibs adopt` | Leases a resource you already have, explicitly. Unleased resources are never swept. | The same as its adapter |
 | Running shell (opt-in) | `shell`, with `DIBS_SHELL_ADAPTER=1` | Leases a shell PID and its helper processes. Release sends SIGHUP, then SIGTERM and SIGKILL to survivors. | `adopt shell` on Linux or macOS |
 | Agent terminal (opt-in) | `tmux`, `herdr`, `rex`, or `treehouse-subshell`, with `terminal_adapters` in user config or `DIBS_TERMINAL_ADAPTERS` | Leases a pane, block, or subshell to its task owner; sweep never closes it while its owner is alive. | The corresponding terminal tool |

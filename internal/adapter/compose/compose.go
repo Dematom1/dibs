@@ -14,6 +14,9 @@ import (
 	atomicfilepkg "github.com/Dematom1/dibs/internal/atomicfile"
 )
 
+// OptIn names the settings that let compose leases own fixed-name volumes and networks.
+const OptIn = `DIBS_COMPOSE_FIXED_NAMES=1 or "compose_fixed_names": true in the user config.json`
+
 type composeAdapter struct{ run adapterpkg.CommandRunner }
 
 func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
@@ -47,7 +50,7 @@ func (a composeAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error 
 
 // Prepare snapshots the resolved Compose config before saving the lease. Cleanup
 // never depends on the original worktree, environment, or Compose file surviving.
-func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapterpkg.CommandRunner) (ref adapterpkg.ResourceRef, err error) {
+func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapterpkg.CommandRunner, fixedNames bool) (ref adapterpkg.ResourceRef, err error) {
 	file := request.File
 	contextName := request.Existing.Context
 	if contextName == "" {
@@ -84,6 +87,7 @@ func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapter
 	if !ok || len(services) == 0 {
 		return ref, errors.New("stack must define services; check dibs create --file")
 	}
+	fixed := false
 	tags := map[string]string{"io.dibs.lease": request.Metadata.LeaseID, "io.dibs.owner": request.Metadata.Owner, "io.dibs.expires": request.Metadata.Expires.Format(time.RFC3339Nano), "io.dibs.machine": request.Metadata.Machine}
 	for _, section := range []string{"services", "volumes", "networks"} {
 		entries, _ := config[section].(map[string]any)
@@ -100,7 +104,10 @@ func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapter
 			}
 			if section != "services" {
 				if name, _ := object["name"].(string); name != "" && name != ref.Name+"_"+key {
-					return ref, errors.New("fixed volume or network names are unsafe to reclaim; remove name or mark the resource external")
+					if !fixedNames {
+						return ref, errors.New("fixed volume or network names are unsafe to reclaim; remove name, mark the resource external, or set " + OptIn)
+					}
+					fixed = true
 				}
 			}
 			labels, _ := object["labels"].(map[string]any)
@@ -113,8 +120,8 @@ func prepare(ctx context.Context, request adapterpkg.PrepareRequest, run adapter
 			object["labels"] = labels
 		}
 	}
-	if ref.Adopted {
-		if err := verifyComposeAdoption(ctx, ref, config, run); err != nil {
+	if ref.Adopted || fixed {
+		if err := verifyProjectOwnership(ctx, ref, config, run); err != nil {
 			return ref, err
 		}
 	}
@@ -139,14 +146,15 @@ func validate(dir string, metadata adapterpkg.Metadata, ref adapterpkg.ResourceR
 	return nil
 }
 
-func New(run adapterpkg.CommandRunner) adapterpkg.Definition {
+// New builds the compose adapter; fixedNames lets new leases own fixed-name volumes and networks.
+func New(run adapterpkg.CommandRunner, fixedNames bool) adapterpkg.Definition {
 	return adapterpkg.Definition{Discover: func(ctx context.Context, r adapterpkg.ResourceRef) ([]map[string]any, error) {
 		return adapterpkg.DiscoverDocker(ctx, r, "compose", run)
 	}, Exists: func(ctx context.Context, t adapterpkg.Target) (bool, error) {
 		return adapterpkg.DockerExists(ctx, t.Ref, "compose", run)
 	}, Name: "compose", Adapter: composeAdapter{run}, CreateAllowed: true, RequiresFile: true,
 		Prepare: func(ctx context.Context, r adapterpkg.PrepareRequest) (adapterpkg.ResourceRef, error) {
-			return prepare(ctx, r, run)
+			return prepare(ctx, r, run, fixedNames)
 		}, Validate: validate,
 		Env: func(ref adapterpkg.ResourceRef) adapterpkg.Environment {
 			return adapterpkg.Environment{Command: adapterpkg.DockerEnv(ref)}

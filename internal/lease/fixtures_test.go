@@ -17,7 +17,7 @@ const gib = int64(1 << 30)
 const version = "restructure-test"
 
 func testAdapters() adapterpkg.Registry {
-	return adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand))
+	return adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand, false))
 }
 func testManager() *Manager {
 	return New(Options{Adapters: testAdapters(), Owners: ownerpkg.NewRegistry(ownerpkg.PID(), ownerpkg.Session(), ownerpkg.Heartbeat())})

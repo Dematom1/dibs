@@ -22,7 +22,7 @@ func TestLegacyAndAdoptedSnapshotsThroughStateAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := strings.Repeat("a", 32)
-	for _, definition := range []adapterpkg.Definition{kindpkg.New(nil), k3dpkg.New(nil), composepkg.New(nil)} {
+	for _, definition := range []adapterpkg.Definition{kindpkg.New(nil), k3dpkg.New(nil), composepkg.New(nil, false)} {
 		for _, adopted := range []bool{false, true} {
 			for _, prefix := range []string{"berth-", "dibs-"} {
 				file, suffix := "kubeconfig", id

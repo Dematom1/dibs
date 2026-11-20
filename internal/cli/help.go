@@ -70,6 +70,9 @@ Terminal types (terminal_adapters in config.json or DIBS_TERMINAL_ADAPTERS) pin
 the terminal's process so a reused ID is never reclaimed. Like shells they are
 owner-bound: only proven owner death reclaims them. Cleanup hangs up the shell,
 then closes the pane or block. A same-owner retry returns existing: true.
+Compose fixed volume or network names (DIBS_COMPOSE_FIXED_NAMES=1 or
+"compose_fixed_names": true) must carry the project's label and be used only
+by its containers; release removes them with the project.
 --key K: retries match owner, protection, adapter, mode, resource, Docker scope or terminal server, and Compose file; TTL, description, and labels are ignored.
 --protect-live-owner: only proven owner death reclaims; expiry alone never does.
 Requires DIBS_LIVE_OWNER_PROTECTION=1 or "live_owner_protection": true.
@@ -203,7 +206,9 @@ exec:<command> (DIBS_EXEC_OWNER=1 or "exec_owner": true) runs the command with
 /bin/sh from / with a 10s timeout: exit 0 alive, 1-125 dead, anything else unknown.
 kind and k3d create uniquely named clusters; kind uses a private kubeconfig.
 compose creates
-a uniquely named project with a durable resolved config. none records metadata
+a uniquely named project with a durable resolved config. Fixed volume or
+network names need DIBS_COMPOSE_FIXED_NAMES=1 or "compose_fixed_names": true,
+and must not exist yet. none records metadata
 only and performs no external cleanup. up is an alias.
 --protect-live-owner: sweep never reclaims while the owner is alive or unknown,
 even after expiry; only proven owner death reclaims. Use the worker's own owner.

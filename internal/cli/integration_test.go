@@ -255,6 +255,89 @@ func TestIntegrationCompose(t *testing.T) {
 	}
 }
 
+// Regression for a stack with a fixed-name network and container_name: adopt
+// refused it, and marking the network external left it behind after sweep.
+func TestIntegrationComposeFixedNames(t *testing.T) {
+	integrationReady(t, "compose")
+	t.Setenv("DOCKER_HOST", "")
+	var token [6]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		t.Fatal(err)
+	}
+	prefix := fmt.Sprintf("dibsfixed%x", token)
+	dir := t.TempDir()
+	docker := func(args ...string) string {
+		t.Helper()
+		out, err := adapterpkg.RunCommand(context.Background(), nil, "docker", args...)
+		if err != nil {
+			t.Fatalf("docker %v: %s, %v", args, out, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(name, config string) string {
+		file := filepath.Join(dir, name)
+		if err := os.WriteFile(file, []byte(config), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return file
+	}
+	leftovers := func() string {
+		return docker("ps", "-aq", "--filter", "name="+prefix) + docker("network", "ls", "-q", "--filter", "name="+prefix) + docker("volume", "ls", "-q", "--filter", "name="+prefix)
+	}
+	// Runs before integrationReady's lease release, so it frees every container still attached to a fixture.
+	t.Cleanup(func() {
+		ids := func(args ...string) []string {
+			out, _ := adapterpkg.RunCommand(context.Background(), nil, "docker", args...)
+			return strings.Fields(string(out))
+		}
+		containers := ids("ps", "-aq", "--filter", "name="+prefix)
+		for _, network := range ids("network", "ls", "-q", "--filter", "name="+prefix) {
+			containers = append(containers, ids("ps", "-aq", "--filter", "network="+network)...)
+		}
+		for _, id := range containers {
+			ids("rm", "-f", id)
+		}
+		for _, kind := range []string{"network", "volume"} {
+			for _, id := range ids(kind, "ls", "-q", "--filter", "name="+prefix) {
+				ids(kind, "rm", id)
+			}
+		}
+	})
+
+	project := prefix + "-proof"
+	file := write("adopt.yaml", fmt.Sprintf("services:\n  app:\n    image: alpine:3.23\n    container_name: %[1]s_app\n    command: [sleep, '600']\n    networks: [dev]\n    volumes: [data:/data]\nnetworks:\n  dev:\n    name: %[1]s_dev\nvolumes:\n  data:\n    name: %[1]s_data\n", prefix))
+	docker("compose", "-p", project, "-f", file, "up", "-d")
+	adopt := []string{"adopt", "compose", project, "--file", file, "--owner", os.Getenv("DIBS_OWNER"), "--ttl", "1ms"}
+	t.Setenv("DIBS_COMPOSE_FIXED_NAMES", "0")
+	invoke(t, 1, adopt...)
+	t.Setenv("DIBS_COMPOSE_FIXED_NAMES", "1")
+	invoke(t, 0, adopt...)
+	time.Sleep(2 * time.Millisecond)
+	if reclaimed := invoke(t, 0, "sweep", "--confirm")["reclaimed"].([]any); len(reclaimed) != 1 {
+		t.Fatalf("adopted fixed-name stack not reclaimed: %v", reclaimed)
+	}
+	if left := leftovers(); left != "" {
+		t.Fatalf("sweep left fixed-name resources behind: %s", left)
+	}
+
+	// create: a fixed name compose will label is reclaimed; one that already exists is refused and kept.
+	file = write("create.yaml", fmt.Sprintf("services:\n  app:\n    image: alpine:3.23\n    command: [sleep, '600']\n    networks: [dev]\nnetworks:\n  dev:\n    name: %s_dev\n", prefix))
+	id := invoke(t, 0, "create", "--adapter", "compose", "--file", file, "--ttl", "15m")["record"].(map[string]any)["id"].(string)
+	if docker("network", "ls", "-q", "--filter", "label=io.dibs.lease="+id) == "" {
+		t.Fatal("fixed-name network not created under the lease")
+	}
+	invoke(t, 0, "release", id, "--confirm")
+	if left := leftovers(); left != "" {
+		t.Fatalf("release left fixed-name resources behind: %s", left)
+	}
+	docker("network", "create", prefix+"_dev")
+	invoke(t, 1, "create", "--adapter", "compose", "--file", file, "--ttl", "15m")
+	if docker("network", "ls", "-q", "--filter", "name="+prefix+"_dev") == "" {
+		t.Fatal("refused create removed the existing network")
+	}
+	t.Logf("verified fixed-name adopt, sweep and create reclaim with nothing left, and refusal of a foreign fixed name")
+}
+
 // A supervisor outage lets a protected lease expire: sweep keeps the live
 // owner's real resource, a late renew reattaches, and a vanished resource refuses.
 func TestIntegrationProtectedLeaseReattach(t *testing.T) {

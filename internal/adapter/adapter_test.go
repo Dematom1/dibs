@@ -168,7 +168,7 @@ func TestComposeSnapshotAndUnsafeNames(t *testing.T) {
 			}
 			return json.Marshal(config)
 		}
-		ref, err := composepkg.New(runner).Prepare(context.Background(), adapterpkg.PrepareRequest{Metadata: l.Metadata, SnapshotDir: filepath.Join(s.dir, "resources", l.Metadata.LeaseID), File: "input.yaml"})
+		ref, err := composepkg.New(runner, false).Prepare(context.Background(), adapterpkg.PrepareRequest{Metadata: l.Metadata, SnapshotDir: filepath.Join(s.dir, "resources", l.Metadata.LeaseID), File: "input.yaml"})
 		l.Ref = ref
 		if unsafe != "" {
 			if err == nil {
@@ -223,10 +223,10 @@ func (a k3dAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
 type composeAdapter struct{ run adapterpkg.CommandRunner }
 
 func (a composeAdapter) Create(ctx context.Context, l adapterpkg.Target) (adapterpkg.ResourceRef, error) {
-	return composepkg.New(a.run).Adapter.Create(ctx, l)
+	return composepkg.New(a.run, false).Adapter.Create(ctx, l)
 }
 func (a composeAdapter) Destroy(ctx context.Context, l adapterpkg.Target) error {
-	return composepkg.New(a.run).Adapter.Destroy(ctx, l)
+	return composepkg.New(a.run, false).Adapter.Destroy(ctx, l)
 }
 
 func TestScopeIsReservedForPolicyRow(t *testing.T) {

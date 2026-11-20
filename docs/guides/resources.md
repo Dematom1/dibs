@@ -54,7 +54,10 @@ Cleanup does not require the original file, environment, or worktree. Labels
 record creation-time expiry; the lease record is authoritative after `extend`.
 Fixed `container_name` values and nonexternal volume or network names outside
 the generated project are rejected. Mark shared volumes and networks `external`
-to keep them out of cleanup. Release runs Compose down with `--volumes` and
+to keep them out of cleanup. With `"compose_fixed_names": true` in the user
+config.json, or `DIBS_COMPOSE_FIXED_NAMES=1`, a fixed volume or network name is
+accepted when it does not exist yet: Compose creates it with the project's
+labels, and cleanup removes it. Release runs Compose down with `--volumes` and
 `--remove-orphans`, so data in managed volumes is deleted.
 
 Adapters tolerate already absent resources. Cleanup errors retain the
@@ -93,8 +96,10 @@ Adoption captures the Docker context and endpoint, a private cluster kubeconfig,
 or a resolved Compose config snapshot. Compose requires one input file. For a
 project started with multiple files, pass a single resolved config containing
 their combined configuration. Fixed nonexternal volume and network names outside
-`<project>_<key>` are refused. Existing nonexternal volumes and networks must
-also carry that project's Compose label. Mark shared resources `external`. Existing fixed
+`<project>_<key>` are refused unless `compose_fixed_names` (or
+`DIBS_COMPOSE_FIXED_NAMES=1`) is on. Existing nonexternal volumes and networks must
+also carry that project's Compose label, and a fixed-name one must not be used by
+containers outside the project. Release then removes it with the project. Mark shared resources `external`. Existing fixed
 container names are permitted because adoption explicitly selects their project.
 Cleanup does not require the original file or working directory to survive.
 Existing resource labels are not changed or recreated. Dibs records the

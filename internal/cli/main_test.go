@@ -22,6 +22,12 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(name)
 		}
 	}
+	// Docker keeps its CLI plugins and current context under HOME; integration tests still need them.
+	if _, set := os.LookupEnv("DOCKER_CONFIG"); !set {
+		if real, err := os.UserHomeDir(); err == nil {
+			os.Setenv("DOCKER_CONFIG", filepath.Join(real, ".docker"))
+		}
+	}
 	os.Setenv("HOME", home)
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	os.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))

@@ -31,7 +31,7 @@ func newAdapters() adapterpkg.Registry {
 	shell := shellpkg.New(shellpkg.Options{List: shellpkg.PS, Grace: 5 * time.Second, Log: os.Stderr, Self: os.Getpid(), TTYTimes: shellpkg.TTYTimes})
 	treehouse := treehousepkg.New(adapterpkg.RunCommandIn, optedIn("DIBS_TREEHOUSE_WORKTREE", configpkg.TreehouseWorktree))
 	terminals := terminalpkg.Real()
-	return adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand), shell, treehouse,
+	return adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand, optedIn("DIBS_COMPOSE_FIXED_NAMES", configpkg.ComposeFixedNames)), shell, treehouse,
 		tmuxpkg.New(terminals), herdrpkg.New(terminals), rexpkg.New(terminals), subshellpkg.New(terminals))
 }
 
