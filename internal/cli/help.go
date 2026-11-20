@@ -174,15 +174,25 @@ reclaim_at, remaining, renew_by, and activity (busy, idle, members).
 Examples:
   dibs explain <id>
   dibs explain <id> --json`,
-	"orphans": `dibs orphans [--context NAME] [--type T] [--server S] [--full] [--axi | --json]
+	"orphans": `dibs orphans [--context NAME] [--type T] [--server S] [--adopt --ttl D] [--full] [--axi | --json]
 Read-only inventory of unleased kind, k3d and Compose resources in the selected
 Docker context, plus opted-in terminals. --type limits it to one type; a terminal
 type skips Docker. Includes evidence and adoption command templates.
 Unleased does not mean unused: age never authorizes deletion. No state is written.
+--adopt (opt-in: DIBS_ORPHAN_AUDIT=1 or "orphan_audit": true) adopts only Compose
+projects with agent evidence: every working_dir inside an orphan_evidence_roots
+slot (default ~/.treehouse/*/* and ~/.no-mistakes/worktrees/*/*) or an
+io.dibs.task label. A slot where a live process works is skipped. Each adopted
+project gets --ttl and this exiting process as owner, so the next dibs sweep
+--confirm reclaims it after any policy grace; its cleanup file is rebuilt from
+compose labels. Everything else, including kind, k3d and OrbStack machines, is
+reported only. Each row gets audit.action; audit counts found, adopted,
+skipped_live, report_only and failed.
 Examples:
   dibs orphans
   dibs orphans --context orbstack --json
-  dibs orphans --type rex`,
+  dibs orphans --type rex
+  dibs orphans --adopt --ttl 30m --json`,
 	"setup": `dibs setup hooks [--remove] [--axi | --json]
 Install or remove managed Claude Code, Codex, Pi and OpenCode integrations.
 Sets DIBS_AXI=1 in agent shell environments. Repeated setup is a no-op.

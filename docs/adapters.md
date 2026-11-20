@@ -144,6 +144,17 @@ For Compose, `verifyProjectOwnership` in `internal/adapter/compose/inventory.go`
 
 Unleased does not mean unused. Age never authorizes cleanup. Test: `TestReadOnlyInventoryAndStateMigration`, and `TestInventoryOutputModes` for the output.
 
+### Adopting agent orphans
+
+`dibs orphans --adopt --ttl D` is the opt-in backstop for agent work that skipped dibs. It needs `"orphan_audit": true` in the user config or `DIBS_ORPHAN_AUDIT=1`; otherwise it exits 2 before touching state. `adoptOrphans` in `internal/cli/audit.go` gives every row an `audit` object with an `action` and, when useful, a `reason` or the new `lease` ID. `classify` decides the action:
+
+- `adopted`: a Compose project whose every container `com.docker.compose.project.working_dir` sits in an agent slot, or that carries an `io.dibs.task` label, and where no process of this user has its working directory inside that slot (or inside the working directory, for a label-only match). A slot is the leading path that matches one `orphan_evidence_roots` pattern, by default a treehouse pool slot `~/.treehouse/<pool>/<n>` or a no-mistakes run worktree `~/.no-mistakes/worktrees/<repo>/<run>`.
+- `skipped_live`: agent evidence, but a live process works in the slot, or `lsof` could not list process working directories. Unknown liveness never adopts.
+- `report_only`: everything else, including Compose projects without agent evidence or with a working directory outside the roots, resources labeled for a lease this state does not hold, kind and k3d clusters, terminals, and OrbStack machines (`orbctl list`, listed only with `--adopt` when `orbctl` is installed).
+- `failed`: adoption was refused, such as a project with no containers left or with fixed volume or network names. The row keeps the reason and the command still exits 0.
+
+Each adoption goes through `Manager.Adopt` like a manual `dibs adopt`. The owner is `pid:` of the audit process itself, alive while it adopts and gone when the command returns, so the lease's owner is dead from the next sweep on: `dibs sweep --confirm` reclaims it after any policy grace (with lease policies on, a `compose/pid` row can set one), and `--ttl` bounds it if liveness is ever unknown. `compose.FromLabels` rebuilds the cleanup file from the compose labels on the project's containers, volumes, and networks, so adoption works after the original file or worktree is gone. It declares exactly the labeled resources, so unlabeled external resources are never removed. `--json` adds `audit` counts: `found`, `adopted`, `skipped_live`, `report_only`, and `failed`. Tests: `TestClassifyAdoptsOnlyIdleAgentEvidence`, `TestEvidenceRootsConfig`, `TestOrphanAdoptIsOptInAndNeedsTTL`, `TestFromLabelsDeclaresOnlyLabeledResources`, and `TestIntegrationOrphanAudit`.
+
 ## Docker endpoint for legacy and adopted leases
 
 `validate` in each Docker-backed adapter accepts the legacy `berth-<id>` name for existing leases, so leases created before the rename still list and reclaim. For k3d, the legacy name is `berth-` plus the first 26 characters. Adopted leases accept any valid resource name and require a captured `docker_host`. Test: `TestLegacyAndAdoptedSnapshotsThroughStateAlias`. Compose cleanup uses the recorded project, not label discovery. Test: `TestLegacyComposeLabelsCleanedByRecordedProject`.

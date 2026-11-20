@@ -96,8 +96,11 @@ func DiscoverDocker(ctx context.Context, r ResourceRef, adapter string, run Comm
 			Created   string
 			CreatedAt string
 			Labels    map[string]string
-			Config    struct{ Labels map[string]string }
-			State     struct{ Status string }
+			Config    struct {
+				Labels map[string]string
+				Image  string
+			}
+			State struct{ Status string }
 		}
 		if err := json.Unmarshal(out, &objects); err != nil {
 			return nil, errors.New("cannot decode resource inventory; existence is unknown")
@@ -123,7 +126,11 @@ func DiscoverDocker(ctx context.Context, r ResourceRef, adapter string, run Comm
 				row = map[string]any{"type": adapter, "name": name, "docker_context": r.Context, "created": created, "labels": labels, "working_dir": "", "working_dir_status": "unknown", "config_files": "", "evidence": map[string]any{}}
 				groups[name] = row
 			}
-			row["evidence"].(map[string]any)[kind+":"+object.Name] = map[string]any{"created": created, "labels": labels, "status": object.State.Status}
+			evidence := map[string]any{"created": created, "labels": labels, "status": object.State.Status}
+			if kind == "container" {
+				evidence["image"] = object.Config.Image
+			}
+			row["evidence"].(map[string]any)[kind+":"+object.Name] = evidence
 			if dir := labels["com.docker.compose.project.working_dir"]; dir != "" {
 				row["working_dir"], row["config_files"] = dir, labels["com.docker.compose.project.config_files"]
 				status := "unknown"

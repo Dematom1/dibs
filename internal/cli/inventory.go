@@ -87,7 +87,7 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	contextName := fs.String("context", "", "Docker context (default selected context)")
 	server := fs.String("server", "", "terminal server: tmux socket, herdr session, or rex endpoint")
 	var owner, file, key, pending, claim, kind string
-	var protect bool
+	var protect, adoptOrphans bool
 	var ttl, idle, maxLifetime time.Duration
 	var excluded listFlag
 	stale := 15 * time.Minute
@@ -105,6 +105,8 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		fs.Var(&excluded, "landed-exclude-remote", "remote whose refs do not count as landed (repeatable)")
 	} else {
 		fs.StringVar(&kind, "type", "", "limit to one resource type")
+		fs.BoolVar(&adoptOrphans, "adopt", false, "adopt agent-evidenced Compose orphans for sweep")
+		fs.DurationVar(&ttl, "ttl", 0, "lifetime of each adopted orphan")
 	}
 	if err := parseFlags(fs, args); err != nil {
 		return outputpkg.Error(out, mode, 2, err.Error(), help(command))
@@ -156,6 +158,10 @@ func (app application) runInventory(ctx context.Context, command string, args []
 		}
 	} else if fs.NArg() != 0 || (kind != "" && (!known || d.Discover == nil)) || (*server != "" && !terminal) || (terminal && *contextName != "") {
 		return outputpkg.Error(out, mode, 2, "orphans takes no positional arguments; --type names a resource type; --server requires --type with a terminal type", help(command))
+	} else if adoptOrphans && !orphanAuditEnabled() {
+		return outputpkg.Error(out, mode, 2, orphanAuditOff, help(command))
+	} else if adoptOrphans != (ttl != 0) || ttl < 0 {
+		return outputpkg.Error(out, mode, 2, "--adopt requires a positive --ttl, and --ttl applies only with --adopt", help(command))
 	}
 	var terminals []string
 	if terminal || (command == "orphans" && kind == "") {
@@ -244,13 +250,31 @@ func (app application) runInventory(ctx context.Context, command string, args []
 	for _, row := range rows {
 		row["adopt"] = adoptionCommand(row)
 	}
-	result := map[string]any{"count": len(rows), "orphans": rows, "help": []string{"Unleased does not mean unused. Choose an owner and TTL explicitly; age alone never authorizes cleanup."}}
-	if len(terminals) > 0 {
+	result := map[string]any{"help": []string{"Unleased does not mean unused. Choose an owner and TTL explicitly; age alone never authorizes cleanup."}}
+	if adoptOrphans {
+		if kind == "" {
+			machines, err := orbstackMachines(ctx)
+			if err != nil {
+				unavailable["orbstack"] = err.Error()
+			}
+			rows = append(rows, machines...)
+		}
+		counts, err := app.adoptOrphans(ctx, r, rows, ttl)
+		if err != nil {
+			return outputpkg.Error(out, mode, 1, err.Error(), "Fix the orphan audit setting or owner and retry dibs orphans --adopt")
+		}
+		result["audit"] = counts
+		result["help"] = []string{"Adopted orphans have an owner that is already gone; dibs sweep --confirm reclaims them after any policy grace. Run dibs release <id> to inspect one first."}
+	}
+	result["count"], result["orphans"] = len(rows), rows
+	if len(terminals) > 0 || adoptOrphans {
 		result["unavailable"] = unavailable
 	}
 	for _, name := range slices.Sorted(maps.Keys(unavailable)) {
 		hint := "Start the " + name + " server, or run dibs orphans --type " + name + " --server S to inventory another one"
-		if name == "docker" {
+		if name == "orbstack" {
+			hint = "OrbStack machines were not inventoried; check orbctl list"
+		} else if name == "docker" {
 			hint = "Docker resources were not inventoried; select a reachable context with --context NAME and retry dibs orphans"
 		}
 		result["help"] = append(result["help"].([]string), hint)

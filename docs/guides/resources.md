@@ -79,6 +79,7 @@ unused, and age alone never authorizes cleanup.
  dibs adopt compose my-stack --file compose.yaml --owner "pid:$$" --ttl 2h
  dibs sweep                         # preview dead-owner or expired leases
  dibs sweep --confirm               # destroy only eligible leased resources
+ dibs orphans --adopt --ttl 30m     # opt-in: adopt agent-left Compose orphans for sweep
 ```
 
 Both new commands are explicit opt-ins. Existing create, release, and sweep

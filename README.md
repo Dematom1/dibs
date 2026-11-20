@@ -106,6 +106,22 @@ lease is released. Policy holds still apply, so an `action: report` policy only
 reports. Expiry never wakes it, so keep `dibs sweep --confirm` on a host timer
 as the backstop. Details: [docs/leases.md](docs/leases.md#lease-watcher).
 
+## Adopt agent-left orphans for sweep (opt-in)
+
+Set `"orphan_audit": true` in your user `config.json`, or `DIBS_ORPHAN_AUDIT=1`.
+Then `dibs orphans --adopt --ttl 30m` adopts only unleased Compose projects with
+agent evidence: every container working directory sits in an agent slot
+(`~/.treehouse/*/*` or `~/.no-mistakes/worktrees/*/*`; `orphan_evidence_roots`
+overrides the list), or the project carries an `io.dibs.task` label. A project in
+a slot where a live process still works is skipped. Each adopted project is owned
+by the audit process itself, which is gone when the command returns, so the next
+`dibs sweep --confirm` reclaims it after any policy grace. The cleanup file is
+rebuilt from the compose labels, so a deleted worktree does not block cleanup.
+Everything else, including kind, k3d, and OrbStack machines, is reported only.
+`--json` adds `audit` counts: `found`, `adopted`, `skipped_live`, `report_only`,
+`failed`. Run it right after the periodic sweep. Details:
+[docs/adapters.md](docs/adapters.md#adopting-agent-orphans).
+
 ## Hand a lease to a new owner (opt-in)
 
 With `"handoff": true` in your user `config.json`, or `DIBS_HANDOFF=1`, a lease

@@ -1,0 +1,34 @@
+package compose
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestFromLabelsDeclaresOnlyLabeledResources(t *testing.T) {
+	row := map[string]any{"evidence": map[string]any{
+		"container:lab-web-1": map[string]any{"image": "alpine:3.23", "labels": map[string]string{"com.docker.compose.service": "web"}},
+		"volume:lab_data":     map[string]any{"labels": map[string]string{"com.docker.compose.volume": "data"}},
+		"network:lab_default": map[string]any{"labels": map[string]string{"com.docker.compose.network": "default"}},
+		"volume:shared":       map[string]any{"labels": map[string]string{}},
+	}}
+	data, err := FromLabels(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]map[string]map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["services"]["web"]["image"] != "alpine:3.23" || got["volumes"]["data"]["name"] != "lab_data" || got["networks"]["default"]["name"] != "lab_default" || len(got["volumes"]) != 1 || len(got["services"]["web"]["volumes"].([]any)) != 1 || len(got["services"]["web"]["networks"].([]any)) != 1 {
+		t.Fatalf("snapshot must declare exactly the labeled resources: %s", data)
+	}
+	for _, bad := range []map[string]any{
+		{"evidence": map[string]any{"volume:lab_data": map[string]any{"labels": map[string]string{"com.docker.compose.volume": "data"}}}},
+		{"evidence": map[string]any{"container:x": map[string]any{"labels": map[string]string{"com.docker.compose.service": "web"}}}},
+	} {
+		if _, err := FromLabels(bad); err == nil {
+			t.Fatalf("expected refusal for %v", bad)
+		}
+	}
+}

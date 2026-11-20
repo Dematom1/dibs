@@ -56,7 +56,7 @@ Commands build one `map[string]any` and pass it to `Emit`. `Emit` renders the sa
 | A consumer contract refusal | `code`, `contract`, `error`, `exit_code` (3), `help`, `reason`, and `id` when the command names a lease (absent on a refused `create`) |
 | `sweep` | `confirmed`, `eligible`, `reclaimed`, `unknown`. Adds `help` when not confirmed. Adds `code`, `error`, `exit_code`, and `failures` on failure. |
 | `adopt` | `help`, `lease`, `record` |
-| `orphans` | `count`, `help`, `orphans`. Each row has `type`, `name`, `docker_context`, `created`, `labels`, `working_dir`, `working_dir_status`, `config_files`, `evidence`, and `adopt` (the command template). |
+| `orphans` | `count`, `help`, `orphans`. Each row has `type`, `name`, `docker_context`, `created`, `labels`, `working_dir`, `working_dir_status`, `config_files`, `evidence`, and `adopt` (the command template). Container evidence includes `image`. With `--adopt`, each row also has `audit` (`action`, and `reason` or `lease`), and the result adds `audit` counts (`found`, `adopted`, `skipped_live`, `report_only`, `failed`) and `unavailable`. |
 | `machine install` | `help`, `machine`, `status`, `version` |
 | `setup hooks` | `changed`, `help`, `status` |
 | Any error | `code`, `error`, `exit_code`, `help` |

@@ -53,7 +53,7 @@ The SSH handshake compares this string exactly. See [Remote jobs over SSH](remot
 | `scope end` | `--confirm` | scope ID |
 | `scope show` | `--key`, `--full` | scope ID, or none with `--key` |
 | `handoff` | `--owner` (required), `--stale` (default `15m`), `--confirm` (needs the `handoff` opt-in, otherwise exit 2) | lease ID |
-| `orphans` | `--context` | none |
+| `orphans` | `--context`, `--type`, `--server`, `--adopt` with `--ttl` (positive; needs the `orphan_audit` opt-in, otherwise exit 2) | none |
 | `machine install` | `--file` (required) | machine name |
 | `setup hooks` | `--remove` | none |
 | `setup shims` | `--dir` (default `$XDG_DATA_HOME/dibs/shims`; needs the `shims` opt-in, otherwise exit 2) | none |
