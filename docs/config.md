@@ -65,6 +65,7 @@ dibs uses the XDG path on macOS too. The legacy fallback never moves or rewrites
 | `treehouse_worktree_adapter` | boolean | Allows new `treehouse-worktree` leases. See [Adapters](adapters.md#treehouse-worktree) |
 | `scopes` | boolean | Turns on `dibs scope` and the `scope:<id>` owner kind. See [Scopes](leases.md#scopes) |
 | `handoff` | boolean | Turns on `dibs handoff`. See [Handoff](leases.md#handoff) |
+| `compose_fixed_names` | boolean | Lets new `compose` leases own fixed-name volumes and networks that carry, or will carry, the project's labels. See [Adapters](adapters.md#compose) |
 | `lease_watcher` | boolean | Starts a watcher with each `pid:` or `session:` lease that reclaims it when its owner exits. See [Lease watcher](leases.md#lease-watcher) |
 | `shims` | boolean | Turns on `dibs setup shims` installation. Installed shims enforce creates whenever `DIBS_TASK` is set, regardless of this setting. See [Create shims](shims.md) |
 | `lease_policies` | boolean | Turns on the lease policy table, overridden either way by `DIBS_LEASE_POLICIES`. See [lease policies](guides/owners.md#lease-policies) |
@@ -104,6 +105,7 @@ A memory string is a non-negative integer with an optional unit: `GiB`, `MiB`, `
 | `DIBS_LEASE_WATCHER` | `leaseWatcherEnabled` | Boolean that overrides `lease_watcher` either way. No `BERTH_*` alias. |
 | `DIBS_SHIMS` | `shimsEnabled` | Boolean that gates `dibs setup shims`; it does not disable enforcement in already-installed shims. No `BERTH_*` alias. |
 | `DIBS_TASK`, `DIBS_SCOPE` | `runShim` | Set by an agent supervisor, never by dibs. With `DIBS_TASK` set, an installed shim routes creates through `dibs create`, owned by `DIBS_OWNER`, then `scope:$DIBS_SCOPE`, then the scope keyed `DIBS_TASK`. See [Create shims](shims.md). |
+| `DIBS_COMPOSE_FIXED_NAMES` | `newAdapters` | Boolean that overrides `compose_fixed_names` either way. No `BERTH_*` alias. |
 | `DIBS_LEASE` (and `BERTH_LEASE`) | Set by `startJob` | Lease ID, exported to the job child |
 
 The `DIBS_*` name wins whenever it is set, even when empty. `internal/compat/env.go` reads the legacy `BERTH_*` name only when the new one is unset. Each legacy name in use prints one warning on stderr.

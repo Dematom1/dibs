@@ -43,7 +43,7 @@ func inventoryRunner(t *testing.T, driver, name string) adapterpkg.CommandRunner
 }
 func inventoryManager(t *testing.T, driver string, run adapterpkg.CommandRunner) *Manager {
 	t.Helper()
-	d := map[string]adapterpkg.Definition{"kind": kindpkg.New(run), "k3d": k3dpkg.New(run), "compose": composepkg.New(run)}[driver]
+	d := map[string]adapterpkg.Definition{"kind": kindpkg.New(run), "k3d": k3dpkg.New(run), "compose": composepkg.New(run, false)}[driver]
 	m := testManager()
 	m.options.Directory = t.TempDir()
 	m.options.Adapters = adapterpkg.NewRegistry(d)

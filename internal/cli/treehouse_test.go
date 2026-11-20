@@ -63,7 +63,7 @@ func (p *fakePool) run(_ context.Context, _ string, _ []string, name string, arg
 }
 
 func fakeTreehouseApp(pool *fakePool) application {
-	resources := adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand), treehousepkg.New(pool.run, true))
+	resources := adapterpkg.NewRegistry(nonepkg.New(), kindpkg.New(adapterpkg.RunCommand), k3dpkg.New(adapterpkg.RunCommand), composepkg.New(adapterpkg.RunCommand, false), treehousepkg.New(pool.run, true))
 	owners := newOwners()
 	return application{version, resources, owners, leasepkg.New(leasepkg.Options{Adapters: resources, Owners: owners})}
 }

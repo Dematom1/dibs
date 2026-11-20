@@ -58,6 +58,8 @@ type Config struct {
 	LeaseWatcher bool `json:"lease_watcher"`
 	// Shims lets PATH shims from dibs setup shims route a DIBS_TASK session's creates through dibs create.
 	Shims bool `json:"shims"`
+	// ComposeFixedNames lets compose leases own fixed-name volumes and networks labeled with their project.
+	ComposeFixedNames bool `json:"compose_fixed_names"`
 }
 
 func hostMemory() (int64, error) {
@@ -197,6 +199,7 @@ type optIns struct {
 	Handoff             bool     `json:"handoff"`
 	LeaseWatcher        bool     `json:"lease_watcher"`
 	Shims               bool     `json:"shims"`
+	ComposeFixedNames   bool     `json:"compose_fixed_names"`
 }
 
 // readOptIns reads opt-ins without probing host memory; a missing or unreadable config leaves them off.
@@ -241,6 +244,9 @@ func LeaseWatcher() bool { return readOptIns().LeaseWatcher }
 
 // Shims reports the shims opt-in.
 func Shims() bool { return readOptIns().Shims }
+
+// ComposeFixedNames reports the compose_fixed_names opt-in.
+func ComposeFixedNames() bool { return readOptIns().ComposeFixedNames }
 
 // Handoff reports the handoff opt-in.
 func Handoff() bool { return readOptIns().Handoff }

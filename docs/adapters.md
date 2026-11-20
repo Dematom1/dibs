@@ -86,7 +86,7 @@ Tests: `TestK3dKeepsCallerKubeconfig`, `TestIntegrationK3d`.
 
 - The config must define at least one service.
 - A service with a fixed `container_name` is refused, unless the lease is adopted.
-- A volume or network with a fixed `name` other than `<project>_<key>` is refused, unless it is marked `external`.
+- A volume or network with a fixed `name` other than `<project>_<key>` is refused, unless it is marked `external` or `compose_fixed_names` (`DIBS_COMPOSE_FIXED_NAMES`) is on. With the opt-in, `verifyProjectOwnership` accepts the fixed name only when no such resource exists yet, so Compose creates it with the project's labels, or when the existing one carries the project's `com.docker.compose.project` label and only the project's containers use it. `compose down` removes it like any project resource.
 - Every non-external service, volume, and network gets the labels `io.dibs.lease`, `io.dibs.owner`, `io.dibs.expires`, and `io.dibs.machine`.
 - The result is written atomically to `<state>/resources/<id>/compose.json`.
 
@@ -97,7 +97,7 @@ Cleanup reads only this snapshot. It does not need the original file, environmen
 
 `down --volumes` deletes data in managed volumes. External volumes and networks are outside cleanup.
 
-Tests: `TestComposeSnapshotAndUnsafeNames`, `TestIntegrationCompose`.
+Tests: `TestComposeSnapshotAndUnsafeNames`, `TestFixedNamesNeedProjectOwnership`, `TestIntegrationCompose`, `TestIntegrationComposeFixedNames`.
 
 ### process
 
@@ -132,7 +132,7 @@ With `--pending ID`, `bindPending` binds the named resource to an existing pendi
 
 Adoption does not recreate the resource and does not change its name. The adopted lease is then an ordinary lease: `dibs release <id> --confirm` runs the adapter's `Destroy` and deletes the resource. Adoption therefore carries the same destructive cleanup as a created lease.
 
-For Compose, `verifyComposeAdoption` in `internal/adapter/compose/inventory.go` refuses an existing non-external volume or network that is not labeled with the project. Mark shared resources `external` before adoption. Tests: `TestAdoptRefusalsAndDurability`, `TestComposeAdoptionRequiresProjectLabels`, `TestIntegrationAdoptAndOrphans`.
+For Compose, `verifyProjectOwnership` in `internal/adapter/compose/inventory.go` refuses an existing non-external volume or network that is not labeled with the project, and a fixed-name one that containers outside the project use. Mark shared resources `external` before adoption. Tests: `TestAdoptRefusalsAndDurability`, `TestComposeAdoptionRequiresProjectLabels`, `TestFixedNamesNeedProjectOwnership`, `TestIntegrationAdoptAndOrphans`, `TestIntegrationComposeFixedNames`.
 
 ## Orphans
 
@@ -153,7 +153,7 @@ Unleased does not mean unused. Age never authorizes cleanup. Test: `TestReadOnly
 1. **A record is removed only after verify-gone.** `Destroy` returns nil only after it lists the remaining resources and finds none. A new adapter must do the same. The only exception is the `process` adapter's reaped-leader case in ADR 0002, and a change to it needs its own decision.
 2. **`Destroy` tolerates absence.** An already-absent or partly created resource is not a reason to keep failing, so retries converge. Test: `TestSweepPreviewRetryAndIdempotence`.
 3. **Cleanup never depends on the caller's environment.** Adapters use the context name (and, for k3d, the endpoint) and private files recorded in the lease, never the current `DOCKER_HOST`, `DOCKER_CONTEXT`, `KUBECONFIG`, or the original Compose file. The recorded context name is not a pinned endpoint: changing what that context points to changes what cleanup targets. Test: `TestK3dKeepsCallerKubeconfig`.
-4. **dibs touches only resources it named.** Names derive from the lease ID, or come from an adoption the operator made explicitly. Compose rejects fixed names that cleanup could share with another project. dibs never sweeps unleased resources. Test: `TestComposeSnapshotAndUnsafeNames`.
+4. **dibs touches only resources it named.** Names derive from the lease ID, or come from an adoption the operator made explicitly. Compose rejects fixed names that cleanup could share with another project; the `compose_fixed_names` opt-in accepts one only while the project owns it. dibs never sweeps unleased resources. Test: `TestComposeSnapshotAndUnsafeNames`.
 5. **Every external call is bounded.** `RunCommand` applies a 5-minute timeout.
 6. **No secrets in arguments.** Resolved Compose values go to the private `compose.json` file, not to argv.
 7. **Each adapter's file stays in its state directory.** `Validate` checks the file with `SnapshotMatches`, so cleanup cannot point at a file outside `<state>/resources/<id>/`.

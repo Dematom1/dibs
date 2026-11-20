@@ -52,10 +52,11 @@ saves a private config snapshot, and labels its services, volumes, and networks
 with `io.dibs.lease`, `io.dibs.owner`, `io.dibs.expires`, and `io.dibs.machine`.
 Cleanup does not require the original file, environment, or worktree. Labels
 record creation-time expiry; the lease record is authoritative after `extend`.
-Fixed `container_name` values and nonexternal volume or network names outside
-the generated project are rejected. Mark shared volumes and networks `external`
-to keep them out of cleanup. Release runs Compose down with `--volumes` and
-`--remove-orphans`, so data in managed volumes is deleted.
+Fixed `container_name` values are rejected for new leases; adoption may use them.
+Fixed volume and network names are rejected unless marked `external` or the
+`compose_fixed_names` opt-in is enabled. See [Compose adapter rules](../adapters.md#compose)
+for ownership checks and cleanup behavior. Release runs Compose down with
+`--volumes` and `--remove-orphans`, so data in managed volumes is deleted.
 
 Adapters tolerate already absent resources. Cleanup errors retain the
 lease and exit 1. Dibs verifies that managed resources are gone before removing
@@ -92,10 +93,9 @@ project volumes, so review the project before adopting it.
 Adoption captures the Docker context and endpoint, a private cluster kubeconfig,
 or a resolved Compose config snapshot. Compose requires one input file. For a
 project started with multiple files, pass a single resolved config containing
-their combined configuration. Fixed nonexternal volume and network names outside
-`<project>_<key>` are refused. Existing nonexternal volumes and networks must
-also carry that project's Compose label. Mark shared resources `external`. Existing fixed
-container names are permitted because adoption explicitly selects their project.
+their combined configuration. Fixed nonexternal volume and network names follow the [Compose adapter rules](../adapters.md#compose).
+Mark shared resources `external`. Existing fixed container names are permitted
+because adoption explicitly selects their project.
 Cleanup does not require the original file or working directory to survive.
 Existing resource labels are not changed or recreated. Dibs records the
 `io.dibs.lease`, `io.dibs.owner`, `io.dibs.expires`, and `io.dibs.machine`
