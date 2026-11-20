@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	adapterpkg "github.com/Dematom1/dibs/internal/adapter"
+	leasepkg "github.com/Dematom1/dibs/internal/lease"
 )
 
 // TestIntegrationOrphanAudit runs the audit as its own process, as the sweep job
@@ -131,8 +132,8 @@ func TestIntegrationOrphanAudit(t *testing.T) {
 	held := invoke(t, 0, "sweep", "--confirm")
 	holds, _ := held["held"].(map[string]any)
 	reason, _ := holds[lease].(string)
-	if len(held["reclaimed"].([]any)) != 0 || !strings.Contains(reason, "live process works in") {
-		t.Fatalf("sweep destroyed an adopted project whose slot has live work again: %v", held)
+	if len(held["reclaimed"].([]any)) != 0 || reason != string(leasepkg.HoldResourceBusy) {
+		t.Fatalf("sweep must hold the adopted project as resource_busy while its slot has live work: %v", held)
 	}
 	if stillThere, err := adapterpkg.RunCommand(ctx, nil, "docker", "--context", docker.Context, "volume", "ls", "-q", "--filter", "label=com.docker.compose.project="+adopted); err != nil || len(strings.Fields(string(stillThere))) == 0 {
 		t.Fatalf("held project lost its volume: %s %v", stillThere, err)
