@@ -46,7 +46,7 @@ Release does not delete `resources/<lease-id>/`. The [state and safety guide](gu
 
 `validate` rejects the whole file when any of these is true:
 
-- `version` is below `1` or above `8`, or `leases` is missing.
+- `version` is below `1` or above `9`, or `leases` is missing.
 - A waiter has a malformed ID, an empty machine, a zero `expires`, an owner kind other than `pid` or `session`, or an empty owner identity.
 - A lease map key does not match the lease's own `id`, or the ID is not 32 lowercase hex characters.
 - A lease has an empty `machine`, a zero `created` or `expires`, or a non-positive `ttl`.
@@ -125,7 +125,7 @@ Cloned hosts must have distinct OS identities. dibs does not generate or modify 
 
 | Field | Go field and type | Notes |
 | --- | --- | --- |
-| `version` | `store.Version`, int | `2` for new state, `3` while any lease is protected, `4` while any lease is keyed or pending. `1` to `4` are accepted. |
+| `version` | `store.Version`, int | `2` for new state, `3` while any lease is protected, `4` while any lease is keyed or pending. `1` to `9` are accepted. |
 | `writer_version` | `store.Writer`, string | Version of the dibs binary that last saved the file. Additive; it does not change the schema version. Omitted when empty. Test: `TestStateWithWriterVersionLoadsAndRecordsWriter`. |
 | `leases` | `map[string]Lease` | Keyed by lease ID |
 | `waiters` | `[]waiter` | FIFO job admission queue. Omitted when empty. |
