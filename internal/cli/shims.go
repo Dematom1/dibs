@@ -158,7 +158,7 @@ func (app application) runShim(ctx context.Context, args []string, out io.Writer
 	tool, real, rest := args[0], args[1], args[2:]
 	task := os.Getenv("DIBS_TASK")
 	route := shimRoute{}
-	if task != "" && shimsEnabled() {
+	if task != "" {
 		cwd, _ := os.Getwd()
 		route = classifyShim(tool, rest, os.Getenv, cwd)
 	}

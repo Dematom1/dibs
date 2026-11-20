@@ -6,7 +6,7 @@ Source: `internal/cli/shims.go` (`runSetupShims`, `shimScript`, `runShim`, `clas
 
 ## Opt-in
 
-The feature is off until `"shims": true` is in the user `config.json` or `DIBS_SHIMS=1` is set. `DIBS_SHIMS` overrides the config either way (`shimsEnabled`). With the opt-in off, `dibs setup shims` exits 2 and writes nothing, and an installed shim passes every call through, even with `DIBS_TASK` set. The `setup` help and the command list mention shims only while the opt-in is on, so the default help is unchanged.
+Shim installation is off until `"shims": true` is in the user `config.json` or `DIBS_SHIMS=1` is set. `DIBS_SHIMS` overrides the config either way (`shimsEnabled`). With the opt-in off, `dibs setup shims` exits 2 and writes nothing. Installed shims enforce interception whenever `DIBS_TASK` is set, regardless of the installation opt-in; without `DIBS_TASK`, they pass every call through. The `setup` help and command list mention shims only while installation is enabled, so default help is unchanged.
 
 Installing the shims never turns interception on. dibs never edits `PATH`. The installer, for example a dotfiles home configuration, puts the shim directory first on `PATH` for agent sessions.
 
@@ -28,7 +28,7 @@ Every hop moves to a strictly later `PATH` entry. So a shim never execs itself, 
 
 ## Classification
 
-`__shim` is a hidden command and not part of the CLI contract. If `DIBS_TASK` is empty or the opt-in is off, it execs the real tool. Otherwise `classifyShim` sorts the call into one of three results:
+`__shim` is a hidden command and not part of the CLI contract. If `DIBS_TASK` is empty, it execs the real tool. Otherwise `classifyShim` sorts the call into one of three results:
 
 | Call | Result |
 | --- | --- |
@@ -72,7 +72,7 @@ Before the create, `runShim` unsets `DIBS_TASK`. The adapter's own `docker`, `ki
 ## Invariants
 
 1. **Humans are unaffected.** Without `DIBS_TASK`, a shim is a plain `exec` that never starts dibs. Test: `TestShimPassesThroughWithoutTask`.
-2. **Opt-in.** With `DIBS_SHIMS` or `shims` off, every call passes through. Test: `TestRunShim`.
+2. **Task enforcement.** With `DIBS_TASK` set, creates are intercepted or refused regardless of `DIBS_SHIMS`; without it, every call passes through. The opt-in gates installation only. Test: `TestRunShim`.
 3. **No recursion.** Each hop moves strictly later on `PATH`, and dibs's own tool calls run without `DIBS_TASK`.
 4. **Argv and exit codes are exact** on passthrough. Test: `TestShimPassesThroughWithoutTask`.
 5. **A create is never silently changed.** A create runs as a lease or is refused with the `dibs` command to run. It never passes through unleased. The only exception is a project that is already a dibs compose lease.

@@ -127,8 +127,9 @@ dibs handoff <id> --owner 'pr:acme/app#42' --confirm  # retries report already_d
 
 With `"shims": true` in your user `config.json`, or `DIBS_SHIMS=1`, `dibs setup shims [--dir D]`
 writes `docker`, `kind`, `k3d`, `orb` and `orbctl` shims. Put the directory first on `PATH` for
-agent sessions; dibs never edits `PATH`. A shim execs the real tool unchanged unless `DIBS_TASK`
-is set, so a human's terminal is unaffected. With `DIBS_TASK` set, `docker compose up`,
+agent sessions; dibs never edits `PATH`. An installed shim execs the real tool unchanged unless
+`DIBS_TASK` is set, so a human's terminal is unaffected. With `DIBS_TASK` set, enforcement is
+independent of `DIBS_SHIMS`. `docker compose up`,
 `kind create cluster` and `k3d cluster create` run as `dibs create`, owned by `DIBS_OWNER`,
 `scope:$DIBS_SCOPE`, or the scope keyed by `DIBS_TASK`:
 

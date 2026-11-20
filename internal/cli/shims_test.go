@@ -236,11 +236,15 @@ func TestRunShim(t *testing.T) {
 		return code, out.String()
 	}
 	on := map[string]string{"DIBS_TASK": "t1", "DIBS_SHIMS": "1"}
-	// No task, or the opt-in off, is a pure passthrough even for a create verb.
-	for _, env := range []map[string]string{{"DIBS_SHIMS": "1"}, {"DIBS_TASK": "t1"}, {"DIBS_TASK": "t1", "DIBS_SHIMS": "0"}} {
-		shim(env, "kind", "/real/kind", "create", "cluster", "--name", "a b")
-		if strings.Join(execed, "|") != "/real/kind|create|cluster|--name|a b" {
-			t.Fatalf("env %v: execed %q", env, execed)
+	// DIBS_TASK controls enforcement; DIBS_SHIMS only controls installation.
+	shim(map[string]string{"DIBS_SHIMS": "1"}, "kind", "/real/kind", "create", "cluster", "--name", "a b")
+	if strings.Join(execed, "|") != "/real/kind|create|cluster|--name|a b" {
+		t.Fatalf("taskless call did not pass through: %q", execed)
+	}
+	for _, env := range []map[string]string{{"DIBS_TASK": "t1"}, {"DIBS_TASK": "t1", "DIBS_SHIMS": "0"}} {
+		code, out := shim(env, "kind", "/real/kind", "create", "cluster", "--name", "a b")
+		if code != 2 || execed != nil || !strings.Contains(out, "dibs create --adapter kind") {
+			t.Fatalf("env %v: exit %d execed %q: %s", env, code, execed, out)
 		}
 	}
 	shim(on, "kind", "/real/kind", "get", "clusters")
